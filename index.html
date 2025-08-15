@@ -406,7 +406,7 @@ function nextEvent(){
     lines=["Three tickets stack. Register lags.","Decision 4. Throughput push."];
     choices=["Allow small pre batch","Keep hand made quality","Push second round pre‑food"];
     acts=[
-      ()=>{ let gain=10+(S.upg.amb?2:0); S.money+=gain; S.mJ++; let add=.01-(S.upg.pos?.007:0); add=Math.max(0,add); S.L+=add; S.heat+=6-(S.upg.prep?2:0); telTick("throughput",gain,0,add,S.heat); S.step++; nextEvent(); },
+      ()=>{ let gain=10+(S.upg.amb?2:0); S.money+=gain; S.mJ++; let add=.01-(S.upg.pos ? 0.007 : 0); add=Math.max(0,add); S.L+=add; S.heat+=6-(S.upg.prep?2:0); telTick("throughput",gain,0,add,S.heat); S.step++; nextEvent(); },
       ()=>{ S.karma++; S.mShift++; telTick("throughput",0,1,0,3); S.step++; nextEvent(); },
       ()=>{ let gain=14+(S.upg.amb?3:0); S.money+=gain; S.karma=Math.max(0,S.karma-1); S.mM--; S.L+=.03; S.heat+=7; telTick("throughput",gain,-1,.03,7); S.step++; nextEvent(); }
     ];
@@ -432,7 +432,7 @@ function nextEvent(){
   else if(S.step===7){
     lines=["Jules and Mina reach the pass at once.","Decision 7. Speak through one."];
     const need = S.authority<1 ? " (need Authority)" : "";
-    choices=[`Speak as Jules${need}`,`Speak as Mina${need}","Stay silent"];
+    choices=[`Speak as Jules${need}`, `Speak as Mina${need}`, "Stay silent"];
     acts=[
       ()=>{ if(S.authority<1){ setDialog(["You hesitate. Policy resolves."],["Continue"],[()=>{telTick("s2",0,0,0,1); S.step++; nextEvent();}]); return; }
             S.authority-=1; S.karma++; S.mJ++; S.mM++; S.trust++; telTick("s2",0,1,0,1); S.step++; nextEvent(); },
