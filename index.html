@@ -1,824 +1,681 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Bar Management VN Demo</title>
-  <style>
-    /* Basic page and text styling */
-    html, body { margin: 0; height: 100%; background: #0e0b0a; color: #eee; font-family: system-ui, Segoe UI, Roboto, Arial; }
-    #wrap { position: fixed; inset: 0; display: grid; place-items: center; }
-    canvas { touch-action: none; background: #120d0b; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); }
-    .topbar { position: fixed; left: 0; right: 0; top: 0; height: 40px; display: flex; gap: .75rem; align-items: center; padding: 0 .75rem; background: linear-gradient(#1a120f, #130d0b); }
-    .pill { padding: .2rem .5rem; border-radius: 999px; background: #241714; color: #f8e7d9; font-size: .9rem; }
-    #hint { position: fixed; left: 0; right: 0; bottom: .5rem; text-align: center; font-size: .9rem; opacity: .85; }
-    /* On-screen controls for mobile (joystick pad and A button) */
-    .pad { position: absolute; bottom: 4.5rem; left: 1rem; width: 9rem; height: 9rem; border-radius: 50%; background: radial-gradient(rgba(255,255,255,0.08), rgba(255,255,255,0.02)); pointer-events: auto; touch-action: none; }
-    .btn { position: absolute; right: 1.2rem; bottom: 6rem; width: 4.5rem; height: 4.5rem; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(rgba(255,255,255,0.1), rgba(255,255,255,0.03)); font-weight: 700; pointer-events: auto; touch-action: none; user-select: none; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Bar Management VN — Mobile + Orders + Inventory</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e0b0a;color:#eee;font-family:system-ui,Segoe UI,Roboto,Arial}
+  .topbar{position:fixed;left:0;right:0;top:0;height:46px;display:flex;gap:.4rem;align-items:center;padding:0 .6rem;background:linear-gradient(#1a120f,#130d0b);z-index:10}
+  .pill{padding:.28rem .55rem;border-radius:999px;background:#241714;color:#f8e7d9;font-size:.92rem;white-space:nowrap}
+  .sp{flex:1}
+  .btn{padding:.35rem .6rem;border-radius:10px;background:#201512;color:#f8e7d9;font-weight:700;cursor:pointer;user-select:none}
+  .btn:active{transform:translateY(1px)}
+  #wrap{position:fixed;inset:46px 0 0 0;display:grid;place-items:center}
+  canvas{touch-action:none;background:#120d0b;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6)}
+  #hint{position:fixed;left:0;right:0;bottom:.5rem;text-align:center;font-size:.9rem;opacity:.85;pointer-events:none}
+
+  .panel{position:fixed;inset:auto .6rem .6rem .6rem;top:58px;max-width:960px;margin:0 auto;background:rgba(15,10,10,.96);border:1px solid rgba(255,255,255,.12);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.45);padding:14px;display:none;z-index:20}
+  .panel h2{margin:.2rem 0 .6rem 0;font-size:1.05rem}
+  .row{display:flex;gap:.6rem;flex-wrap:wrap}
+  .card{flex:1 1 280px;background:#1a1210;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px}
+  .card h3{margin:.1rem 0 .4rem 0;font-size:.98rem}
+  .kv{display:flex;justify-content:space-between;margin:.18rem 0}
+  .kv b{color:#f3e9dc}
+  .list{margin:.3rem 0 .4rem 0}
+  .list button{display:block;width:100%;margin:.25rem 0;padding:.6rem .6rem;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#241714;color:#f8e7d9;font-weight:700;cursor:pointer}
+  .list button:disabled{opacity:.45;cursor:not-allowed}
+  .small{opacity:.85;font-size:.86rem}
+  .close{position:absolute;right:10px;top:8px;cursor:pointer;padding:.3rem .55rem;border-radius:10px;background:#241714}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.4rem}
+  @media (min-width:720px){ .grid{grid-template-columns:repeat(3,1fr)} }
+  @media (min-width:980px){ .grid{grid-template-columns:repeat(4,1fr)} }
+
+  /* Orders panel */
+  .cols{display:flex;gap:.6rem;flex-wrap:wrap}
+  .col{flex:1 1 280px}
+  .order{display:flex;justify-content:space-between;align-items:center;padding:.55rem;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#201312;margin:.25rem 0}
+  .order.sel{outline:2px solid #7a0e17}
+  .tag{font-size:.85rem;opacity:.8}
+  .chip{padding:.18rem .5rem;border-radius:999px;background:#271a17;font-size:.8rem}
+
+  /* Drift cues */
+  body.drift1 #c{filter:contrast(1.02) saturate(1.02) hue-rotate(2deg)}
+  body.drift2 #c{filter:contrast(1.06) saturate(1.08) hue-rotate(6deg) blur(.3px)}
+  body.drift3 #c{filter:contrast(1.12) saturate(1.15) hue-rotate(12deg) blur(.6px)}
+  body.drift3 .topbar{background:linear-gradient(#1a0f12,#180b10)}
+
+  /* Mobile controls */
+  .pad{position:fixed;bottom:5rem;left:1rem;width:9rem;height:9rem;border-radius:50%;background:radial-gradient(rgba(255,255,255,.08),rgba(255,255,255,.02));pointer-events:auto;touch-action:none}
+  .act{position:fixed;right:1.2rem;bottom:6rem;width:4.5rem;height:4.5rem;border-radius:50%;display:grid;place-items:center;background:radial-gradient(rgba(255,255,255,.1),rgba(255,255,255,.03));font-weight:700}
+
+  .rtable{width:100%;border-collapse:collapse;font-size:.9rem}
+  .rtable td,.rtable th{border-bottom:1px solid rgba(255,255,255,.08);padding:.35rem .4rem;text-align:left}
+</style>
 </head>
 <body>
-  <!-- Top status bar displaying time, resources, and morale -->
   <div class="topbar">
     <div id="clock" class="pill">00:00 Day 1</div>
     <div id="money" class="pill">Money 320</div>
     <div id="karma" class="pill">Karma 2</div>
-    <div id="morale" class="pill">Morale 38</div>
+    <div id="morale" class="pill">Morale 100%</div>
+    <div id="heat" class="pill">Heat 0</div>
+    <div id="auth" class="pill">Authority 1</div>
+    <div class="sp"></div>
+    <div class="btn" id="btnOrders">Orders 0</div>
+    <div class="btn" id="btnSupply">Supply</div>
+    <div class="btn" id="btnStats" title="Stats S">Stats</div>
+    <div class="btn" id="btnUpg" title="Upgrades U">Upg</div>
+    <div class="btn" id="btnAbil" title="Abilities K">Abil</div>
+    <div class="btn" id="btnTel" title="Telemetry T">Tel</div>
+    <div class="btn" id="btnPause" title="Pause P">Pause</div>
   </div>
-  <!-- Canvas for game rendering -->
+
   <div id="wrap"><canvas id="c" width="1024" height="640"></canvas></div>
-  <!-- Hint text at bottom for controls -->
-  <div id="hint"></div>
-  <!-- On-screen virtual controls (joystick and action button) -->
-  <div id="hud">
-    <div id="joy" class="pad" aria-label="joystick"></div>
-    <div id="act" class="btn" aria-label="action">A</div>
+  <div id="hint">Tap Orders to craft and serve. S=Stats, U=Upgrades, K=Abilities, T=Telemetry. A=confirm.</div>
+
+  <!-- Stats -->
+  <div id="panelStats" class="panel">
+    <div class="close" data-close="#panelStats">Close</div>
+    <h2>Stats and Flags</h2>
+    <div class="row">
+      <div class="card">
+        <h3>Resources</h3>
+        <div class="kv"><span>Money</span><b id="ps_money">0</b></div>
+        <div class="kv"><span>Karma</span><b id="ps_karma">0</b></div>
+        <div class="kv"><span>Heat</span><b id="ps_heat">0</b></div>
+        <div class="kv"><span>Authority</span><b id="ps_auth">0</b></div>
+        <div class="kv"><span>Illusion L</span><b id="ps_L">Hidden</b></div>
+      </div>
+      <div class="card">
+        <h3>Morale</h3>
+        <div class="kv"><span>Shift buffer</span><b id="ps_mshift">0</b></div>
+        <div class="kv"><span>Jules</span><b id="ps_mj">0</b></div>
+        <div class="kv"><span>Mina</span><b id="ps_mm">0</b></div>
+        <div class="kv"><span>Theo</span><b id="ps_mt">0</b></div>
+        <div class="small">Low morale adds input lag and small penalties.</div>
+      </div>
+      <div class="card">
+        <h3>Flags</h3>
+        <div class="kv"><span>Trust</span><b id="ps_trust">0</b></div>
+        <div class="kv"><span>Pride</span><b id="ps_pride">0</b></div>
+        <div class="kv"><span>Compromise</span><b id="ps_comp">0</b></div>
+        <div class="kv"><span>Debt</span><b id="ps_debt">0</b></div>
+        <div class="kv"><span>Memory</span><b id="ps_mem">0</b></div>
+      </div>
+      <div class="card">
+        <h3>Inventory</h3>
+        <div id="ps_inv" class="small"></div>
+      </div>
+    </div>
   </div>
+
+  <!-- Upgrades -->
+  <div id="panelUpg" class="panel">
+    <div class="close" data-close="#panelUpg">Close</div>
+    <h2>Upgrades</h2>
+    <div class="row">
+      <div class="card"><h3>Prep Station</h3><div class="small">Cut heat from rush scenes. Cost 25.</div><div class="list"><button id="buyPrep">Buy Prep Station</button></div></div>
+      <div class="card"><h3>POS Speed</h3><div class="small">Reduce L from speed pushes. Cost 30.</div><div class="list"><button id="buyPOS">Buy POS Speed</button></div></div>
+      <div class="card"><h3>Training</h3><div class="small">Passive morale recovery. Cost 20.</div><div class="list"><button id="buyTrain">Buy Training</button></div></div>
+      <div class="card"><h3>Ambience</h3><div class="small">Small tip boost. Cost 15.</div><div class="list"><button id="buyAmb">Buy Ambience</button></div></div>
+    </div>
+  </div>
+
+  <!-- Abilities -->
+  <div id="panelAbil" class="panel">
+    <div class="close" data-close="#panelAbil">Close</div>
+    <h2>Abilities and Traits</h2>
+    <div class="row">
+      <div class="card"><h3>Early</h3><div class="list">
+        <button id="buyDeEsc">Buy Deescalate (K1)</button>
+        <button id="useDeEsc">Use Deescalate</button>
+        <button id="buyTimebox">Buy Timebox (K1)</button>
+      </div></div>
+      <div class="card"><h3>Mid</h3><div class="small">Locked this slice.</div><div class="list"><button disabled>Spot contradictions</button><button disabled>Rally speech</button></div></div>
+      <div class="card"><h3>Late</h3><div class="small">Reveal tools later.</div><div class="list"><button disabled>Glimpse</button><button disabled>Anchor</button><button disabled>Aletheia</button></div></div>
+    </div>
+  </div>
+
+  <!-- Telemetry -->
+  <div id="panelTel" class="panel">
+    <div class="close" data-close="#panelTel">Close</div>
+    <h2>Telemetry</h2>
+    <div class="row">
+      <div class="card">
+        <h3>Rates</h3>
+        <div class="kv"><span>L growth per minute of heat</span><b id="tv_Lpm">0</b></div>
+        <div class="kv"><span>Karma per hour</span><b id="tv_Kph">0</b></div>
+        <div class="kv"><span>Morale loss seeded</span><b id="tv_Mloss">0</b></div>
+        <div class="kv"><span>Money delta</span><b id="tv_Money">0</b></div>
+      </div>
+      <div class="card">
+        <h3>Decisions</h3>
+        <div id="tv_list" class="small" style="max-height:220px;overflow:auto"></div>
+        <button id="tv_export">Export JSON</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Orders / Service -->
+  <div id="panelOrders" class="panel">
+    <div class="close" data-close="#panelOrders">Close</div>
+    <h2>Orders & Craft</h2>
+    <div class="cols">
+      <div class="col">
+        <div class="card">
+          <h3>Queue <span class="chip" id="ordCount">0</span></h3>
+          <div id="ordList"></div>
+          <div class="small">Tap an order to craft. Rapport improves tips. Heat reduces tips.</div>
+        </div>
+        <div class="card">
+          <h3>Shortcuts</h3>
+          <div class="grid">
+            <button id="autoFill">Auto-fill required</button>
+            <button id="clearSel">Clear selection</button>
+            <button id="makeBtn">Make & Serve</button>
+            <button id="compBtn">Comp (Money↓, Karma↑)</button>
+            <button id="cancelBtn">Cancel (Morale↓, L↑)</button>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <h3 id="craftTitle">No order selected</h3>
+          <div class="small" id="craftInfo"></div>
+          <div class="list" id="ingGrid"></div>
+        </div>
+        <div class="card">
+          <h3>Inventory</h3>
+          <div id="invQuick" class="small"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supplies -->
+  <div id="panelSupply" class="panel">
+    <div class="close" data-close="#panelSupply">Close</div>
+    <h2>Supplies & Restock</h2>
+    <div class="row" id="supGrid"></div>
+    <div class="small">Bulk buy is faster. Keep core stock healthy to avoid stress and L drift.</div>
+  </div>
+
+  <!-- Report -->
+  <div id="panelReport" class="panel">
+    <div class="close" data-close="#panelReport">Close</div>
+    <h2>Shift Report</h2>
+    <table class="rtable">
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Money end</td><td id="rp_money">0</td></tr>
+      <tr><td>Karma end</td><td id="rp_karma">0</td></tr>
+      <tr><td>Authority end</td><td id="rp_auth">0</td></tr>
+      <tr><td>Heat peak</td><td id="rp_hmax">0</td></tr>
+      <tr><td>Illusion end</td><td id="rp_L">Hidden</td></tr>
+      <tr><td>Morale total</td><td id="rp_mtot">0</td></tr>
+      <tr><td>Choices made</td><td id="rp_cnt">0</td></tr>
+    </table>
+    <div class="small" id="rp_note"></div>
+  </div>
+
+  <!-- Mobile controls -->
+  <div id="joy" class="pad" aria-label="joystick"></div>
+  <div id="act" class="act" aria-label="action">A</div>
 
 <script>
-/* Game State and Configuration */
-const RATE = 0;  // Disable auto time advance; we'll increment time manually per event.
-const state = {
-  day: 1,
-  time: 0,               // minutes since shift start (for clock display)
-  money: 320,
-  karma: 2,
-  illusions: 0.00,       // hidden Illusion pressure meter
-  shiftMorale: 8,        // shift-wide morale buffer
-  julesMorale: 10,        // individual staff morale
-  minaMorale: 10,
-  theoMorale: 10,
-  dialog: null,          // current dialogue state (lines, choices)
-  choiceIndex: 0,        // index of currently highlighted choice
-  boosterTaken: false,   // flag if booster offer was accepted
-  scenarioStep: 1,       // which event/decision we are on (1-10, then summary)
-  scenarioActive: true   // whether the scripted scenario is running
+/* ---------- Core State ---------- */
+const RATE=0;
+const S={
+  day:1,time:0,money:320,karma:2,L:0,heat:0,authority:1,
+  trust:0,pride:0,compromise:0,debt:0,memory:0,
+  mShift:8,mJ:10,mM:10,mT:10,
+  upg:{prep:0,pos:0,train:0,amb:0},
+  abil:{deesc:false,timebox:false},
+  tel:{mins:[],Ls:[],heats:[],money:[],karma:[],morale:[],decisions:[],start:Date.now(),heatIntegral:0,LFromHeat:0,seededMoraleLoss:0},
+  step:1,dialog:null,choiceI:0,scenarioActive:true,
+  inputDelayMs:0,lastInputAt:0,
+
+  // Service / Inventory
+  stock:{ gin:4, tonic:6, lime:5, vermouth:3, olive:3, vodka:5, soda:6 },
+  orders:[], selOrder:null, craftSel:new Set(),
+  orderSpawnMs: 9000, orderTimer:0
 };
-
-/* Map Layout (ASCII grid) */
-const MAP = [
-  "########################",
-  "#     ============     #",
-  "#     =          =     #",
-  "#     =    T     =    D#",
-  "#     =          =     #",
-  "#     ===========B=    #",
-  "#   L    t   M         #",
-  "#            P         #",
-  "#            P         #",
-  "########################"
-];
-/*
-Legend:
-  # = wall (solid)
-  D = door opening (floor, entry/exit point)
-  = = bar counter (solid obstacle)
-  T = table (solid obstacle)
-  t = stool/chair (solid obstacle)
-  B = Jules (Bartender NPC)
-  L = Mina (Server NPC)
-  M = Theo (Cook NPC)
-  P = Customer NPC (two customers seated near table)
-  (spaces ' ' represent floor tiles where characters can move)
-*/
-
-/* Collision set for solid objects */
-const solids = new Set(["#","=","T","t"]);
-
-/* Game objects */
-const NPCS = [];  // list of NPC characters in the scene
-let player = { x: 0, y: 0, px: 0, py: 0, dir: 1, spd: 3 };  // player (manager)
-
-/* NPC spawn and dialogue data */
-const talkData = {
-  B: [],  // Jules (Bartender) – no free-roam scripted dialogue
-  L: [],  // Mina (Server)
-  M: [],  // Theo (Cook)
-  P: []   // Generic patron
+const PRICE={gnt:12,martini:14,vsoda:10};
+const MENU={
+  gnt:{key:'gnt',name:'Gin & Tonic',price:12,req:['gin','tonic'],opt:['lime']},
+  martini:{key:'martini',name:'Martini',price:14,req:['gin','vermouth'],opt:['olive']},
+  vsoda:{key:'vsoda',name:'Vodka Soda',price:10,req:['vodka','soda'],opt:['lime']}
 };
-const npcNames = {
-  B: "Jules",
-  L: "Mina",
-  M: "Theo",
-  P: "Customer"
+const ALL_ING=['gin','tonic','lime','vermouth','olive','vodka','soda'];
+const ING_NAME={gin:'Gin',tonic:'Tonic',lime:'Lime',vermouth:'Vermouth',olive:'Olive',vodka:'Vodka',soda:'Soda'};
+const COST={gin:3,tonic:1,lime:1,vermouth:2,olive:1,vodka:3,soda:1};
+
+/* ---------- Map / Render ---------- */
+const MAP=[
+"########################",
+"#     ============     #",
+"#     =          =     #",
+"#     =    T     =    D#",
+"#     =          =     #",
+"#     ===========B=    #",
+"#   L    t   M         #",
+"#            P         #",
+"#            P         #",
+"########################"];
+const solids=new Set(["#","=","T","t"]);
+const cvs=document.getElementById("c"),ctx=cvs.getContext("2d");
+const W=1024,H=640,tile=32;
+let player={x:8.5,y:6.7,dir:1,spd:3};
+const NPCS=[]; const npcNames={B:"Jules",L:"Mina",M:"Theo",P:"Customer"};
+for(let y=0;y<MAP.length;y++)for(let x=0;x<MAP[0].length;x++){ const ch=MAP[y][x]; if("BLMP".includes(ch)) NPCS.push({name:npcNames[ch]||"NPC",code:ch,x:x+.5,y:y+.7}); }
+function drawMap(){
+  for(let y=0;y<MAP.length;y++)for(let x=0;x<MAP[0].length;x++){
+    const ch=MAP[y][x],gx=x*tile,gy=y*tile;
+    if(ch!="#"){ const r=Math.sin(x*12.9898+y*78.233)*43758.5453; const v=0.15+0.05*(r-Math.floor(r)); ctx.fillStyle=`hsl(18,40%,${v*100}%)`; ctx.fillRect(gx,gy,tile,tile); ctx.strokeStyle=`rgba(255,255,255,.05)`; ctx.lineWidth=1; ctx.beginPath(); for(let i=3;i<tile;i+=6){ctx.moveTo(gx,gy+i);ctx.lineTo(gx+tile,gy+i)} ctx.stroke(); }
+    else{ ctx.fillStyle="#3b1f16"; ctx.fillRect(gx,gy,tile,tile); ctx.fillStyle="#512a1d"; ctx.fillRect(gx+2,gy+2,tile-4,tile-4); ctx.fillStyle="#6a3a24"; ctx.fillRect(gx+4,gy+4,tile-8,tile-8); }
+    if(ch=="="){ ctx.fillStyle="#2b1711"; ctx.fillRect(gx,gy,tile,tile); ctx.fillStyle="#7a4b33"; ctx.fillRect(gx+2,gy+10,tile-4,tile-14); ctx.fillStyle="#3b2318"; ctx.fillRect(gx+2,gy+2,tile-4,6); }
+    if(ch=="T"){ ctx.fillStyle="#7c4a2f"; ctx.beginPath(); ctx.arc(gx+tile/2,gy+tile/2,12,0,Math.PI*2); ctx.fill(); ctx.fillStyle="#2b1812"; ctx.fillRect(gx+tile/2-2,gy+tile/2,4,12); }
+    if(ch=="t"){ ctx.fillStyle="#40261b"; ctx.fillRect(gx+12,gy+16,8,14); ctx.fillStyle="#a16346"; ctx.beginPath(); ctx.arc(gx+16,gy+12,10,0,Math.PI*2); ctx.fill(); }
+    if(ch=="D"){ ctx.fillStyle="#111"; ctx.fillRect(gx,gy,tile,tile); ctx.fillStyle="#222"; ctx.fillRect(gx+4,gy+4,tile-8,tile-8); }
+  }
+}
+function actor(x,y,code){ const gx=(x-0.5)*tile,gy=(y-1)*tile; let coat="#202a3a",skin="#e6d7c4",shade="#0f1a28"; if(code=="B"){coat="#274d2d";shade="#253123"} if(code=="L"){coat="#6c6b2a";shade="#5a3b1e"} if(code=="M"){coat="#111";shade="#222"} if(code=="P"){coat="#6b3b2e";shade="#362018"} ctx.fillStyle=shade; ctx.fillRect(gx+tile*.35,gy+tile*.7,tile*.12,tile*.25); ctx.fillRect(gx+tile*.53,gy+tile*.7,tile*.12,tile*.25); ctx.fillStyle=coat; ctx.fillRect(gx+tile*.25,gy+tile*.25,tile*.5,tile*.5); ctx.fillStyle=skin; ctx.fillRect(gx+tile*.32,gy,tile*.36,tile*.28); ctx.fillStyle="#1a1412"; ctx.fillRect(gx+tile*.32,gy,tile*.36,tile*.07); }
+
+/* ---------- HUD / Panels ---------- */
+const q=s=>document.querySelector(s);
+const elClock=q("#clock"), elMoney=q("#money"), elKarma=q("#karma"), elMorale=q("#morale"), elHeat=q("#heat"), elAuth=q("#auth");
+function ts(){const hr=Math.floor(S.time/60),min=S.time%60|0; return `${String(hr).padStart(2,"0")}:${String(min).padStart(2,"0")}`;}
+function setHUD(){
+  elClock.textContent=`${ts()} Day ${S.day}`;
+  elMoney.textContent=`Money ${S.money}`;
+  elKarma.textContent=`Karma ${S.karma}`;
+  const total=S.mShift+S.mJ+S.mM+S.mT, max=8+10+10+10; let pct=Math.round(total/max*100); if(pct>100)pct=100; elMorale.textContent=`Morale ${pct}%`;
+  elHeat.textContent=`Heat ${Math.round(S.heat)}`;
+  elAuth.textContent=`Authority ${S.authority}`;
+  q("#btnOrders").textContent=`Orders ${S.orders.length}`;
+  // drift
+  document.body.classList.remove("drift1","drift2","drift3");
+  if(S.L>=0.85) document.body.classList.add("drift3"); else if(S.L>=0.60) document.body.classList.add("drift2"); else if(S.L>=0.30) document.body.classList.add("drift1");
+}
+function openPanel(id){ q(id).style.display="block"; fillPanels(); }
+function closePanel(id){ q(id).style.display="none"; }
+document.querySelectorAll(".close").forEach(b=>b.addEventListener("click",()=>closePanel(b.getAttribute("data-close"))));
+q("#btnStats").onclick=()=>openPanel("#panelStats");
+q("#btnUpg").onclick=()=>openPanel("#panelUpg");
+q("#btnAbil").onclick=()=>openPanel("#panelAbil");
+q("#btnTel").onclick=()=>openPanel("#panelTel");
+q("#btnOrders").onclick=()=>{ openPanel("#panelOrders"); renderOrders(); };
+q("#btnSupply").onclick=()=>{ openPanel("#panelSupply"); renderSupply(); };
+q("#btnPause").onclick=()=>S.scenarioActive=!S.scenarioActive;
+
+function fillPanels(){
+  // Stats
+  q("#ps_money").textContent=S.money.toFixed(2);
+  q("#ps_karma").textContent=S.karma;
+  q("#ps_heat").textContent=Math.round(S.heat);
+  q("#ps_auth").textContent=S.authority.toFixed(1);
+  q("#ps_L").textContent=S.L.toFixed(2);
+  q("#ps_mshift").textContent=S.mShift.toFixed(1);
+  q("#ps_mj").textContent=S.mJ.toFixed(1);
+  q("#ps_mm").textContent=S.mM.toFixed(1);
+  q("#ps_mt").textContent=S.mT.toFixed(1);
+  q("#ps_trust").textContent=S.trust;
+  q("#ps_pride").textContent=S.pride;
+  q("#ps_comp").textContent=S.compromise;
+  q("#ps_debt").textContent=S.debt;
+  q("#ps_mem").textContent=S.memory;
+  // Inventory quick table
+  q("#ps_inv").innerHTML = ALL_ING.map(k=>`${ING_NAME[k]}: <b>${S.stock[k]}</b>`).join(" · ");
+  // Upgrades buttons
+  q("#buyPrep").disabled=!!S.upg.prep || S.money<25;
+  q("#buyPOS").disabled=!!S.upg.pos || S.money<30;
+  q("#buyTrain").disabled=!!S.upg.train || S.money<20;
+  q("#buyAmb").disabled=!!S.upg.amb || S.money<15;
+  // Abilities
+  q("#buyDeEsc").disabled=S.abil.deesc || S.karma<1;
+  q("#useDeEsc").disabled=!S.abil.deesc;
+  q("#buyTimebox").disabled=S.abil.timebox || S.karma<1;
+}
+
+/* ---------- Upgrades / Abilities ---------- */
+q("#buyPrep").onclick=()=>{ if(S.money>=25&&!S.upg.prep){ S.money-=25; S.upg.prep=1; toast("Prep station online"); setHUD(); fillPanels(); }};
+q("#buyPOS").onclick=()=>{ if(S.money>=30&&!S.upg.pos){ S.money-=30; S.upg.pos=1; toast("POS faster"); setHUD(); fillPanels(); }};
+q("#buyTrain").onclick=()=>{ if(S.money>=20&&!S.upg.train){ S.money-=20; S.upg.train=1; toast("Training active"); setHUD(); fillPanels(); }};
+q("#buyAmb").onclick=()=>{ if(S.money>=15&&!S.upg.amb){ S.money-=15; S.upg.amb=1; toast("Ambience improved"); setHUD(); fillPanels(); }};
+q("#buyDeEsc").onclick=()=>{ if(S.karma>=1&&!S.abil.deesc){ S.karma-=1; S.abil.deesc=true; toast("Deescalate learned"); setHUD(); fillPanels(); }};
+q("#useDeEsc").onclick=()=>{ if(S.abil.deesc){ const cut=Math.min(6,S.heat*0.4); S.heat=Math.max(0,S.heat-cut); S.L=Math.max(0,S.L-0.015); S.mShift=Math.min(12,S.mShift+1); toast("Room cools"); setHUD(); }};
+q("#buyTimebox").onclick=()=>{ if(S.karma>=1&&!S.abil.timebox){ S.karma-=1; S.abil.timebox=true; toast("Timebox learned"); setHUD(); fillPanels(); }};
+
+/* ---------- Telemetry ---------- */
+q("#tv_export").onclick=()=>{
+  const data={mins:S.tel.mins,L:S.tel.Ls,heat:S.tel.heats,money:S.tel.money,karma:S.tel.karma,morale:S.tel.morale,decisions:S.tel.decisions};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="telemetry.json"; a.click(); URL.revokeObjectURL(a.href);
 };
-function spawnNPC(code, x, y) {
-  NPCS.push({ 
-    name: npcNames[code] || "NPC",
-    code: code,
-    x: x,
-    y: y,
-    ai: 0,
-    script: talkData[code] ? [...talkData[code]] : []  // clone initial dialogue script array if any
+function telTick(tag, dm=0, dk=0, dL=0, dH=0){
+  S.time+=1;
+  S.tel.mins.push(S.time); S.tel.Ls.push(S.L); S.tel.heats.push(S.heat); S.tel.money.push(S.money); S.tel.karma.push(S.karma); S.tel.morale.push(S.mShift+S.mJ+S.mM+S.mT);
+  S.tel.decisions.push({t:S.time,tag,c:S.choiceI,dm,dk,dl:dL,dh:dH});
+  if(S.upg.train) S.mShift=Math.min(12,S.mShift+0.2);
+  S.tel.heatIntegral+=Math.max(0,S.heat);
+  const Lh=Math.max(0,S.heat)*0.0008; S.L=Math.min(0.999,S.L+Lh); S.tel.LFromHeat+=Lh;
+  setHUD();
+}
+function fillTel(){
+  const mins=S.tel.mins.length||1; const Lpm = S.tel.heatIntegral>0 ? (S.tel.LFromHeat / (S.tel.heatIntegral/60)).toFixed(3) : "0.000";
+  q("#tv_Lpm").textContent=Lpm;
+  const hrs=(Date.now()-S.tel.start)/3600000; q("#tv_Kph").textContent=(S.karma/Math.max(hrs,0.001)).toFixed(2);
+  q("#tv_Mloss").textContent=S.tel.seededMoraleLoss.toFixed(2);
+  const mDelta=(S.tel.money[S.tel.money.length-1]??S.money)-320; q("#tv_Money").textContent=((mDelta>=0?"+":"")+mDelta.toFixed(2));
+  q("#tv_list").innerHTML=S.tel.decisions.map(d=>`<div>t${String(d.t).padStart(2,"0")} ${d.tag} c${d.c+1} Δ$${d.dm} K${d.dk} L${d.dl.toFixed(2)} H${d.dh.toFixed(1)}</div>`).join("");
+}
+q("#btnTel").addEventListener("click",fillTel);
+
+/* ---------- Scenario (first 10 minutes intact) ---------- */
+function moraleLag(){ const total=S.mShift+S.mJ+S.mM+S.mT, max=38; const pct=total/max; S.inputDelayMs = pct<0.6 ? 140 : 0; }
+function nextEvent(){
+  let lines=[],choices=null,acts=null;
+  if(S.step===1){
+    lines=[`Jules: "Clock is green."`,`Mina: "Two reservations at open."`,`Theo: "Fryer good. Buns short."`,`Decision 1. Set intents.`];
+    choices=["J bar only  M floor  You float","J bar+host  M patio  You at pass","Pull Theo to prep  You expo"];
+    acts=[
+      ()=>{ S.mM=Math.min(10,S.mM+1); S.trust++; S.authority+=.5; S.pride++; telTick("intents",0,0,0,2); S.step++; nextEvent(); },
+      ()=>{ S.mJ=Math.max(0,S.mJ-1); S.L+=.01; S.compromise++; S.heat+=3; telTick("intents",0,0,.01,3); S.step++; nextEvent(); },
+      ()=>{ S.money-=10; S.karma++; S.mT=Math.min(10,S.mT+1); S.authority+=1; S.memory++; telTick("intents",-10,1,0,1); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===2){
+    spawnOrder("gnt",0.85); // first ticket appears
+    lines=["Two parties seated. First ticket prints at bar.","Decision 2. Opening guest touch."];
+    choices=["You greet clear and honest","Mina fast specials script","Let staff handle it"];
+    acts=[
+      ()=>{ S.karma++; S.mShift=Math.min(12,S.mShift+1); S.trust++; telTick("greet",0,1,0,1); S.step++; nextEvent(); },
+      ()=>{ const tip=8+(S.upg.amb?2:0); S.money+=tip; S.mM--; S.L+=.02; S.compromise++; S.heat+=4; telTick("greet",tip,0,.02,4); S.step++; nextEvent(); },
+      ()=>{ telTick("greet",0,0,0,0); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===3){
+    lines=["Kitchen delay on twelve. A glass clinks and rolls.","Decision 3. Delay recovery."];
+    choices=["Walk and apologize  comp app","Send fries  no talk","Promise to check soon"];
+    acts=[
+      ()=>{ S.money-=12; S.karma++; S.mShift++; S.trust++; telTick("recovery",-12,1,0,1); S.step++; nextEvent(); },
+      ()=>{ S.money-=6; S.L+=.02; S.tel.seededMoraleLoss+=.5; telTick("recovery",-6,0,.02,2); S.step++; nextEvent(); },
+      ()=>{ S.karma=Math.max(0,S.karma-1); S.mM--; S.L+=.03; S.tel.seededMoraleLoss+=1; S.debt++; telTick("recovery",0,-1,.03,2); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===4){
+    lines=["Three tickets stack. Register lags.","Decision 4. Throughput push."];
+    choices=["Allow small pre batch","Keep hand made quality","Push second round pre‑food"];
+    acts=[
+      ()=>{ let gain=10+(S.upg.amb?2:0); S.money+=gain; S.mJ++; let add=.01-(S.upg.pos?.007:0); add=Math.max(0,add); S.L+=add; S.heat+=6-(S.upg.prep?2:0); telTick("throughput",gain,0,add,S.heat); S.step++; nextEvent(); },
+      ()=>{ S.karma++; S.mShift++; telTick("throughput",0,1,0,3); S.step++; nextEvent(); },
+      ()=>{ let gain=14+(S.upg.amb?3:0); S.money+=gain; S.karma=Math.max(0,S.karma-1); S.mM--; S.L+=.03; S.heat+=7; telTick("throughput",gain,-1,.03,7); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===5){
+    lines=["A guest snaps. Theo calls window full.","Decision 5. Who runs twelve."];
+    choices=["You run now","Ask Mina sprint","Pull Jules off bar"];
+    acts=[
+      ()=>{ S.karma++; S.mShift++; S.authority+=.5; telTick("runner",0,1,0,2); S.step++; nextEvent(); },
+      ()=>{ S.mM--; S.L+=.01; telTick("runner",0,0,.01,2); S.step++; nextEvent(); },
+      ()=>{ S.money-=6; S.mJ--; telTick("runner",-6,0,0,1); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===6){
+    lines=["Back phone lights.","Voice: \"Rush booster. One hour. Accept?\"","Decision 6. Booster."];
+    choices=["Decline","Accept","Ask terms and stall"];
+    acts=[
+      ()=>{ S.karma++; S.memory++; telTick("booster",0,1,0,0); S.step++; nextEvent(); },
+      ()=>{ S.money+=20; S.karma=Math.max(0,S.karma-1); S.mShift=Math.max(0,S.mShift-1); S.L+=.05; S.heat+=4; S.debt++; telTick("booster",20,-1,.05,4); S.step++; nextEvent(); },
+      ()=>{ S.karma++; S.money+=5; S.L+=.01; telTick("booster",5,1,.01,1); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===7){
+    lines=["Jules and Mina reach the pass at once.","Decision 7. Speak through one."];
+    const need = S.authority<1 ? " (need Authority)" : "";
+    choices=[`Speak as Jules${need}`,`Speak as Mina${need}","Stay silent"];
+    acts=[
+      ()=>{ if(S.authority<1){ setDialog(["You hesitate. Policy resolves."],["Continue"],[()=>{telTick("s2",0,0,0,1); S.step++; nextEvent();}]); return; }
+            S.authority-=1; S.karma++; S.mJ++; S.mM++; S.trust++; telTick("s2",0,1,0,1); S.step++; nextEvent(); },
+      ()=>{ if(S.authority<1){ setDialog(["You hesitate. Policy resolves."],["Continue"],[()=>{telTick("s2",0,0,0,1); S.step++; nextEvent();}]); return; }
+            S.authority-=1; S.karma++; S.mM++; S.trust++; telTick("s2",0,1,0,1); S.step++; nextEvent(); },
+      ()=>{ S.mM--; S.L+=.01; telTick("s2",0,0,.01,1); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===8){
+    lines=["Birthday table wants a candle. Patio wants waters.","Decision 8. Gesture."];
+    choices=["Bring candle yourself","Ask Mina after tray","Comp dessert + candle"];
+    acts=[
+      ()=>{ S.karma++; S.mShift++; telTick("gesture",0,1,0,0); S.step++; nextEvent(); },
+      ()=>{ S.mM--; S.L+=.01; telTick("gesture",0,0,.01,1); S.step++; nextEvent(); },
+      ()=>{ S.money-=8; S.karma++; S.mShift++; telTick("gesture",-8,1,0,0); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===9){
+    if(S.L>=.30){
+      lines=["A duplicate ticket sits on the rail. Same time stamp.","Decision 9. Duplicate ticket."];
+      choices=["Glitch—void the twin","Fire second anyway","Delay and ask who printed"];
+      acts=[
+        ()=>{ S.L=Math.max(0,S.L-.01); S.mT++; telTick("dup",0,0,-.01,0); S.step++; nextEvent(); },
+        ()=>{ S.money-=12; S.mT--; S.L+=.02; S.tel.seededMoraleLoss+=.5; telTick("dup",-12,0,.02,1); S.step++; nextEvent(); },
+        ()=>{ S.L+=.03; S.mShift--; telTick("dup",0,0,.03,0); S.step++; nextEvent(); }
+      ];
+    } else {
+      lines=["Routine split check. Nothing odd.","Continue"]; choices=["Continue"]; acts=[()=>{ telTick("calm",0,0,0,0); S.step++; nextEvent(); }];
+    }
+  }
+  else if(S.step===10){
+    lines=["Rush fades. Team meets eyes.","Decision 10. Wrap the hour."];
+    choices=["Spend small to fix & prep","Save cash and push through","Team pep talk"];
+    acts=[
+      ()=>{ S.money-=15; S.karma++; S.mShift++; telTick("wrap",-15,1,0,0); S.step++; nextEvent(); },
+      ()=>{ S.mShift--; S.L+=.01; telTick("wrap",0,0,.01,0); S.step++; nextEvent(); },
+      ()=>{ S.karma++; S.mShift++; telTick("wrap",0,1,0,0); S.step++; nextEvent(); }
+    ];
+  }
+  else if(S.step===11){
+    let sum=[]; if(S.L>=.85) sum.push("The adversary stands in the room."); else if(S.L>=.60) sum.push("Time smears. Ghost orders tap the rail."); else if(S.L>=.30) sum.push("Small contradictions ripple."); else sum.push("The room feels crisp.");
+    setDialog(sum,["Open report"],[()=>openReport()]); S.scenarioActive=false; return;
+  }
+  moraleLag();
+  setDialog(lines,choices,acts); setHUD();
+}
+
+/* ---------- Dialog ---------- */
+function setDialog(lines,choices=null,acts=null){ S.dialog={lines,i:0,choices,acts}; S.choiceI=0; }
+function drawDialog(){
+  if(!S.dialog) return; const d=S.dialog, pad=16, w=Math.min(W-40,640), h=d.choices?170:140, x=(W-w)/2, y=H-h-16;
+  ctx.fillStyle="rgba(0,0,0,.84)"; ctx.fillRect(x,y,w,h); ctx.strokeStyle="rgba(255,255,255,.18)"; ctx.lineWidth=2; ctx.strokeRect(x,y,w,h);
+  ctx.fillStyle="#f3e9dc"; ctx.font="16px Arial"; wrap(d.lines[d.i],x+pad,y+pad+20,w-2*pad,20);
+  if(d.i===d.lines.length-1 && d.choices){ ctx.font="15px Arial"; for(let i=0;i<d.choices.length;i++){ const bw=(w-2*pad)/d.choices.length-8, bx=x+pad+i*((w-2*pad)/d.choices.length), by=y+h-52,bh=36; ctx.fillStyle=(i===S.choiceI)?"#7a0e17":"#2a1a19"; ctx.fillRect(bx,by,bw,bh); ctx.fillStyle="#f3e9dc"; ctx.fillText(d.choices[i],bx+10,by+23);} }
+}
+function wrap(text,x,y,maxWidth,lineHeight){ const words=text.split(" "); let line=""; for(let n=0;n<words.length;n++){ const test=line+words[n]+" "; if(ctx.measureText(test).width>maxWidth && n>0){ ctx.fillText(line,x,y); line=words[n]+" "; y+=lineHeight; } else line=test; } ctx.fillText(line,x,y); }
+function handleAction(){ const now=performance.now(); if(now-S.lastInputAt<S.inputDelayMs) return; S.lastInputAt=now; if(S.dialog){ if(S.dialog.i<S.dialog.lines.length-1){S.dialog.i++;return;} if(S.dialog.choices){ const fn=S.dialog.acts[S.choiceI]; S.dialog=null; if(fn) fn(); } else { S.dialog=null; } } else {
+  // no direct talk in this slice
+  if(!S.scenarioActive){
+    // maybe talk to NPC later
+  }
+}}
+
+/* ---------- Orders / Crafting ---------- */
+function spawnOrder(key=null, rapport=null){
+  const keys=Object.keys(MENU); const k= key|| keys[(Math.random()*keys.length)|0];
+  const r = rapport ?? (0.7 + Math.random()*0.3 - Math.min(S.heat,15)/80); // heat lowers rapport
+  S.orders.push({ id:Math.random().toString(36).slice(2), key:k, rapport:Math.max(0.4,Math.min(1.2,r)), t:Date.now() });
+  setHUD(); if(q("#panelOrders").style.display==="block") renderOrders();
+}
+function renderOrders(){
+  q("#ordCount").textContent=S.orders.length;
+  q("#invQuick").innerHTML = ALL_ING.map(k=>`${ING_NAME[k]}: <b>${S.stock[k]}</b>`).join(" · ");
+  const list=q("#ordList"); list.innerHTML="";
+  if(!S.selOrder && S.orders.length) S.selOrder = S.orders[0].id;
+  S.orders.forEach(o=>{
+    const div=document.createElement("div"); div.className="order"+(o.id===S.selOrder?" sel":"");
+    const left=document.createElement("div"); left.innerHTML=`<b>${MENU[o.key].name}</b><div class="tag">Rapport ${o.rapport.toFixed(2)}</div>`;
+    const right=document.createElement("div"); right.innerHTML=`<span class="chip">$${MENU[o.key].price}</span>`;
+    div.appendChild(left); div.appendChild(right);
+    div.onclick=()=>{ S.selOrder=o.id; S.craftSel=new Set(); renderOrders(); };
+    list.appendChild(div);
+  });
+  const ord=S.orders.find(x=>x.id===S.selOrder);
+  if(!ord){ q("#craftTitle").textContent="No order selected"; q("#craftInfo").textContent=""; q("#ingGrid").innerHTML=""; return; }
+  const rec=MENU[ord.key];
+  q("#craftTitle").textContent=`${rec.name} — $${rec.price}`;
+  q("#craftInfo").textContent=`Required: ${rec.req.map(r=>ING_NAME[r]).join(", ")}  |  Optional: ${(rec.opt||[]).map(o=>ING_NAME[o]).join(", ")||"—"}`;
+  // Ingredients grid with toggles
+  const grid=q("#ingGrid"); grid.innerHTML="";
+  ALL_ING.forEach(ing=>{
+    const count=S.stock[ing]||0;
+    const isReq=rec.req.includes(ing), isOpt=(rec.opt||[]).includes(ing);
+    const sel=S.craftSel.has(ing);
+    const b=document.createElement("button");
+    b.textContent=`${ING_NAME[ing]}  x${count}  ${isReq?"REQ":(isOpt?"OPT":"")}`.trim();
+    b.disabled = (count<=0 && !sel);
+    b.style.background = sel ? "#2f3c6a" : "#241714";
+    b.onclick=()=>{ if(sel){ S.craftSel.delete(ing); } else if(count>0){ S.craftSel.add(ing); } renderOrders(); };
+    grid.appendChild(b);
+  });
+  // action buttons
+  q("#autoFill").onclick=()=>{ S.craftSel=new Set(rec.req.filter(k=>S.stock[k]>0)); renderOrders(); };
+  q("#clearSel").onclick=()=>{ S.craftSel.clear(); renderOrders(); };
+  q("#makeBtn").onclick=()=>makeDrink(ord);
+  q("#compBtn").onclick=()=>compOrder(ord);
+  q("#cancelBtn").onclick=()=>cancelOrder(ord);
+  // enable make only when req are selected and available
+  const canMake = rec.req.every(r=>S.craftSel.has(r) && S.stock[r]>0);
+  q("#makeBtn").disabled = !canMake;
+}
+function tipFor(rapport){
+  let tip=0.12*(0.5+0.5*Math.min(1,0.7+rapport)); // base
+  if(S.upg.amb) tip*=1.1;
+  tip*= (1 - Math.min(S.heat,20)/90); // heat lowers tips slightly
+  return tip;
+}
+function makeDrink(ord){
+  const rec=MENU[ord.key];
+  // consume selected (only req & chosen opt)
+  for(const k of S.craftSel){ if(S.stock[k]>0) S.stock[k]--; }
+  // money
+  const sale = rec.price*(1+tipFor(ord.rapport));
+  S.money += sale;
+  // heat + tiny morale lift
+  S.heat += 2 - (S.upg.prep?1:0);
+  S.mShift = Math.min(12, S.mShift + 0.2);
+  // clear order
+  S.orders = S.orders.filter(o=>o.id!==ord.id);
+  S.selOrder = S.orders[0]?.id || null;
+  toast(`Served ${rec.name}  +$${sale.toFixed(2)}`);
+  setHUD(); renderOrders();
+}
+function compOrder(ord){
+  const rec=MENU[ord.key];
+  S.money = Math.max(0, S.money - rec.price);
+  S.karma += 1;
+  S.mShift = Math.min(12, S.mShift + 0.5);
+  S.orders = S.orders.filter(o=>o.id!==ord.id);
+  S.selOrder = S.orders[0]?.id || null;
+  toast(`Comped ${rec.name}`);
+  setHUD(); renderOrders();
+}
+function cancelOrder(ord){
+  const rec=MENU[ord.key];
+  S.karma = Math.max(0, S.karma - 1);
+  S.mShift = Math.max(0, S.mShift - 0.5);
+  S.L += 0.02;
+  S.orders = S.orders.filter(o=>o.id!==ord.id);
+  S.selOrder = S.orders[0]?.id || null;
+  toast(`Canceled ${rec.name}`);
+  setHUD(); renderOrders();
+}
+
+/* ---------- Supplies ---------- */
+function renderSupply(){
+  const grid=q("#supGrid"); grid.innerHTML="";
+  ALL_ING.forEach(k=>{
+    const card=document.createElement("div"); card.className="card";
+    card.innerHTML = `<h3>${ING_NAME[k]}</h3>
+      <div class="kv"><span>In stock</span><b>${S.stock[k]}</b></div>
+      <div class="kv"><span>Cost per</span><b>$${COST[k]}</b></div>
+      <div class="list">
+        <button ${S.money<COST[k]?"disabled":""} data-k="${k}" data-q="1">Buy +1 ($${COST[k]})</button>
+        <button ${S.money<COST[k]*5?"disabled":""} data-k="${k}" data-q="5">Buy +5 ($${COST[k]*5})</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll("button[data-k]").forEach(b=>{
+    b.onclick=()=>{ const k=b.getAttribute("data-k"); const qn=+b.getAttribute("data-q"); const cost=COST[k]*qn; if(S.money>=cost){ S.money-=cost; S.stock[k]+=qn; setHUD(); renderSupply(); if(q("#panelOrders").style.display==="block") renderOrders(); }};
   });
 }
 
-/* Initialize Map: place NPCs and player */
-state.h = MAP.length;
-state.w = MAP[0].length;
-for (let y = 0; y < state.h; y++) {
-  for (let x = 0; x < state.w; x++) {
-    const ch = MAP[y][x];
-    if (ch === "#") continue;  // skip walls (nothing to do)
-    // Place player at first floor spot if not placed yet
-    if ((ch === " " || ch === ".") && player.x === 0) {
-      player.x = x + 0.5;
-      player.y = y + 0.7;
-    }
-    if ("BLMP".includes(ch)) {
-      spawnNPC(ch, x + 0.5, y + 0.7);
-      // (NPC position remains a floor tile in map for movement/collision purposes)
-    }
-    // No explicit handling needed for other characters (D, =, T, t) here
-  }
-}
-// Manually adjust player start position (manager joins the staff huddle area)
-player.x = 8.5;
-player.y = 6.7;
-
-/* Utility Functions */
-const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
-function near(ax, ay, bx, by, r) { return Math.hypot(ax - bx, ay - by) < r; }
-function timeString() {
-  const hr = Math.floor(state.time / 60);
-  const min = Math.floor(state.time % 60);
-  return `${String(hr).padStart(2,"0")}:${String(min).padStart(2,"0")}`;
+/* ---------- Report ---------- */
+function openReport(){
+  q("#rp_money").textContent=S.money.toFixed(2);
+  q("#rp_karma").textContent=S.karma;
+  q("#rp_auth").textContent=S.authority.toFixed(1);
+  q("#rp_hmax").textContent=Math.max(...S.tel.heats.concat([0])).toFixed(0);
+  q("#rp_L").textContent=S.L.toFixed(2);
+  q("#rp_mtot").textContent=(S.mShift+S.mJ+S.mM+S.mT).toFixed(1);
+  q("#rp_cnt").textContent=S.tel.decisions.length;
+  q("#rp_note").textContent = S.L<0.4 ? "Stable seven days earns the confrontation path." : "L is high. Favor integrity, planning, or late tools.";
+  openPanel("#panelReport");
 }
 
-/* Canvas Setup */
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
-const W = canvas.width, H = canvas.height;
-const tile = 32;  // tile size in pixels (assuming 1024x640 fits 32px tiles for our 24x10 map)
-
-/* Draw Map (floor, walls, furniture, door) */
-function drawMap() {
-  for (let y = 0; y < state.h; y++) {
-    for (let x = 0; x < state.w; x++) {
-      const ch = MAP[y][x];
-      const gx = x * tile, gy = y * tile;
-      // Draw wooden floor for non-wall tiles
-      if (ch !== "#") {
-        // Wooden plank floor with slight random brightness variation
-        const noise = Math.sin(x*12.9898 + y*78.233) * 43758.5453;
-        const base = 0.15 + 0.05 * (noise - Math.floor(noise));
-        ctx.fillStyle = `hsl(18,40%,${base*100}%)`;
-        ctx.fillRect(gx, gy, tile, tile);
-        // draw horizontal plank lines
-        ctx.strokeStyle = `rgba(255,255,255,${0.03 + 0.02 * ((noise*10) % 1)})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let i = 3; i < tile; i += 6) {
-          ctx.moveTo(gx, gy + i);
-          ctx.lineTo(gx + tile, gy + i);
-        }
-        ctx.stroke();
-      }
-      // Walls (bar interior walls)
-      if (ch === "#") {
-        ctx.fillStyle = "#3b1f16";
-        ctx.fillRect(gx, gy, tile, tile);
-        ctx.fillStyle = "#512a1d";
-        ctx.fillRect(gx + 2, gy + 2, tile - 4, tile - 4);
-        ctx.fillStyle = "#6a3a24";
-        ctx.fillRect(gx + 4, gy + 4, tile - 8, tile - 8);
-      }
-      // Bar counter (bar counter top and side)
-      if (ch === "=") {
-        ctx.fillStyle = "#2b1711";
-        ctx.fillRect(gx, gy, tile, tile);
-        ctx.fillStyle = "#7a4b33";
-        ctx.fillRect(gx + 2, gy + 10, tile - 4, tile - 14);
-        ctx.fillStyle = "#3b2318";
-        ctx.fillRect(gx + 2, gy + 2, tile - 4, 6);
-      }
-      // Table
-      if (ch === "T") {
-        ctx.fillStyle = "#7c4a2f";
-        ctx.beginPath();
-        ctx.arc(gx + tile/2, gy + tile/2, 12, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#2b1812";
-        ctx.fillRect(gx + tile/2 - 2, gy + tile/2, 4, 12);
-      }
-      // Stool/chair
-      if (ch === "t") {
-        ctx.fillStyle = "#40261b";
-        ctx.fillRect(gx + 12, gy + 16, 8, 14);
-        ctx.fillStyle = "#a16346";
-        ctx.beginPath();
-        ctx.arc(gx + 16, gy + 12, 10, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // Door (an opening in the wall)
-      if (ch === "D") {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(gx, gy, tile, tile);
-        ctx.fillStyle = "#222";
-        ctx.fillRect(gx + 4, gy + 4, tile - 8, tile - 8);
-      }
-    }
+/* ---------- Input ---------- */
+const keys={};
+document.addEventListener("keydown",e=>{
+  if(["ArrowLeft","ArrowRight"," ","Enter","a","d","A","D","e","E","s","S","u","U","k","K","t","T","p","P"].includes(e.key)) e.preventDefault();
+  keys[e.key]=true;
+  if(["e","E"," ","Enter"].includes(e.key)) S.act=true;
+  if(S.dialog && S.dialog.choices){
+    if(e.key==="ArrowLeft"||e.key==="a") S.choiceI=Math.max(0,S.choiceI-1);
+    if(e.key==="ArrowRight"||e.key==="d") S.choiceI=Math.min(S.dialog.choices.length-1,S.choiceI+1);
   }
-}
-
-/* Draw Characters (NPCs and player) */
-function drawCharacter(x, y, code) {
-  const gx = (x - 0.5) * tile;
-  const gy = (y - 1) * tile;
-  // Determine sprite colors by character code
-  let coat, skin = "#e6d7c4", shade;
-  if (code === "B") {       // Jules (bartender) - green attire
-    coat = "#274d2d"; shade = "#253123";
-  } else if (code === "L") { // Mina (server) - olive attire
-    coat = "#6c6b2a"; shade = "#5a3b1e";
-  } else if (code === "M") { // Theo (cook) - dark outfit
-    coat = "#111"; shade = "#222";
-  } else if (code === "P") { // Customer - brown coat
-    coat = "#6b3b2e"; shade = "#362018";
-  } else {                   // Player or default - blue outfit
-    coat = "#202a3a"; shade = "#0f1a28";
-  }
-  // Draw legs
-  ctx.fillStyle = shade;
-  ctx.fillRect(gx + tile * 0.35, gy + tile * 0.7, tile * 0.12, tile * 0.25);
-  ctx.fillRect(gx + tile * 0.53, gy + tile * 0.7, tile * 0.12, tile * 0.25);
-  // Draw body
-  ctx.fillStyle = coat;
-  ctx.fillRect(gx + tile * 0.25, gy + tile * 0.25, tile * 0.5, tile * 0.5);
-  // Draw head
-  ctx.fillStyle = skin;
-  ctx.fillRect(gx + tile * 0.32, gy, tile * 0.36, tile * 0.28);
-  // Hair/hat line on head
-  ctx.fillStyle = "#1a1412";
-  ctx.fillRect(gx + tile * 0.32, gy, tile * 0.36, tile * 0.07);
-  // (No log prop drawn for any character in this scenario)
-}
-
-/* Input Handling (keyboard and on-screen controls) */
-const keys = {};
-document.addEventListener("keydown", e => {
-  // Prevent scrolling with arrow keys/space
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ", "Enter", "Escape"].includes(e.key)) {
-    e.preventDefault();
-  }
-  keys[e.key] = true;
-  // Map common keys for action (E or Spacebar) to a single flag
-  if (e.key === "e" || e.key === "E" || e.key === " ") {
-    keys["act"] = true;
-  }
+  if(e.key==="s"||e.key==="S") openPanel("#panelStats");
+  if(e.key==="u"||e.key==="U") openPanel("#panelUpg");
+  if(e.key==="k"||e.key==="K") openPanel("#panelAbil");
+  if(e.key==="t"||e.key==="T") { fillTel(); openPanel("#panelTel"); }
+  if(e.key==="p"||e.key==="P") S.scenarioActive=!S.scenarioActive;
 });
-document.addEventListener("keyup", e => {
-  keys[e.key] = false;
-  if (e.key === "e" || e.key === "E" || e.key === " ") {
-    keys["act"] = false;
-  }
-});
-// Virtual joystick and A button for touch
-let joystickActive = false, jx = 0, jy = 0;
-const joyEl = document.getElementById("joy");
-const actBtn = document.getElementById("act");
-function joystickPointerStart(e) {
-  joystickActive = true;
-  const r = joyEl.getBoundingClientRect();
-  const p = e.touches ? e.touches[0] : e;
-  jx = p.clientX - (r.left + r.width/2);
-  jy = p.clientY - (r.top + r.height/2);
-}
-joyEl.addEventListener("pointerdown", joystickPointerStart);
-joyEl.addEventListener("pointermove", e => { if (joystickActive) joystickPointerStart(e); });
-document.addEventListener("pointerup", () => { joystickActive = false; jx = jy = 0; });
-actBtn.addEventListener("pointerdown", () => { keys["act"] = true; });
-actBtn.addEventListener("pointerup", () => { keys["act"] = false; });
+document.addEventListener("keyup",e=>{ keys[e.key]=false; if(["e","E"," ","Enter"].includes(e.key)) S.act=false; });
 
-/* Dialogue System and Scenario Events */
-// Helper to initiate a dialogue with given lines and optional choices
-function setDialogue(lines, choices = null, acts = null) {
-  state.dialog = { lines: lines, index: 0, choices: choices, acts: acts };
-  state.choiceIndex = 0;
-}
-// Progress to the next event in the scripted scenario
-function nextEvent() {
-  const step = state.scenarioStep;
-  let lines = [], choices = null, acts = null;
-  if (step === 1) {
-    // 00:00 – Pre-shift team huddle
-    lines = [
-      `Jules: "Clock is green. I can float host if patio pops."`,
-      `Mina: "Two reservations right at open. One is a birthday."`,
-      `Theo: "Fryer is humming. Delivery shorted us on buns. I can plate sliders on sourdough."`,
-      "Decision 1: Set staff intents for the shift."
-    ];
-    choices = [
-      "J: Bar only, M: Floor, You float",
-      "J: Bar+Host, M: Patio, You at pass",
-      "Pull Theo to prep, You expedite"
-    ];
-    acts = [
-      () => { 
-        // Option 1: Jules only tends bar, Mina handles floor, you float help.
-        // Effect: Money steady, Karma ±0, Mina morale +1 (appreciates trust), Illusion +0.
-        state.minaMorale = clamp(state.minaMorale + 1, 0, 10);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        // Option 2: Jules doubles as bartender + host, Mina on patio, you stick at pass (risky load on Jules).
-        // Effect: Illusion +0.01 (small hidden strain), Jules morale -1 (overloaded), no immediate Money/Karma change.
-        state.illusions += 0.01;
-        state.julesMorale = clamp(state.julesMorale - 1, 0, 10);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        // Option 3: Pull Theo for extra prep now (costly but safe), you cover expediting.
-        // Effect: Money -10 (prep cost), Karma +1 (good planning), Theo morale +1 (appreciates help), Illusion +0.
-        state.money = Math.max(0, state.money - 10);
-        state.karma += 1;
-        state.theoMorale = clamp(state.theoMorale + 1, 0, 10);
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 2) {
-    // 01:00 – First tables are seated
-    spawnNPC('P', 12.5, 6.7);
-    spawnNPC('P', 14.5, 6.7);
-    lines = [
-      "Two parties are seated. Mina carries a tray of water glasses as the first order prints at the bar.",
-      "The ticket reads a gin cocktail with lime and salt. Jules nods and starts on it without looking up.",
-      "Decision 2: Opening guest touch – How will you greet the first table?"
-    ];
-    choices = [
-      "Personally greet them with a warm, honest welcome",
-      "Have Mina pitch the specials to promise quick bites",
-      "Hang back and let the staff handle initial greetings"
-    ];
-    acts = [
-      () => {
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.money += 8;
-        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
-        state.illusions += 0.02;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 3) {
-    lines = [
-      "The kitchen is backed up. Table 12’s appetizer is still in the window. A glass slips from Mina’s tray – just a clink and a wet floor (no break).",
-      `Mina: "Table twelve is still waiting on their appetizer..."`,
-      `Theo (from kitchen): "Fryer’s backed up. I can comp their app with fries or send a substitute."`,
-      "Decision 3: Handle the delay for table 12."
-    ];
-    choices = [
-      "Walk over to apologize and comp their appetizer",
-      "Send free fries to the table without comment",
-      "Do nothing now; promise to “check on it soon”"
-    ];
-    acts = [
-      () => {
-        state.money = Math.max(0, state.money - 12);
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.money = Math.max(0, state.money - 6);
-        state.illusions += 0.02;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.karma = Math.max(0, state.karma - 1);
-        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
-        state.illusions += 0.03;
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 4) {
-    lines = [
-      "A mini-rush hits: three order tickets stack up. The POS registers a slight lag before printing.",
-      `Jules (busy at bar): "Should I pre-batch some sours to speed the rail?"`,
-      `Mina (hustling by): "Patio wants another round, but their food’s not out yet."`,
-      "Decision 4: How will you push throughput during the rush?"
-    ];
-    choices = [
-      "Allow a small pre-batch of cocktails for speed",
-      "Insist on made-to-order drinks for quality",
-      "Tell Mina to upsell another round before food arrives"
-    ];
-    acts = [
-      () => {
-        state.money += 10;
-        state.julesMorale = clamp(state.julesMorale + 1, 0, 10);
-        state.illusions += 0.01;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.money += 14;
-        state.karma = Math.max(0, state.karma - 1);
-        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
-        state.illusions += 0.03;
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 5) {
-    lines = [
-      "A guest at the bar snaps their fingers for attention. Mina doesn’t notice, but Jules diffuses it by sliding over a napkin with a disarming joke scribbled on it.",
-      `Theo (shouting from kitchen): "Order up for twelve! The window’s full—need a runner now!"`,
-      "Decision 5: Who will run the food to table 12?"
-    ];
-    choices = [
-      "You jump in and run it yourself",
-      "Ask Mina (server) to sprint it out now",
-      "Call Jules off the bar to run the food"
-    ];
-    acts = [
-      () => {
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
-        state.illusions += 0.01;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.money = Math.max(0, state.money - 6);
-        state.julesMorale = clamp(state.julesMorale - 1, 0, 10);
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 6) {
-    lines = [
-      "The back phone lights up with an unknown number. Jules glances at you as you put it on speaker.",
-      `Voice (smooth, unfamiliar): "Rush Booster. Tonight only. A small favor now for an hour of smooth sailing. Do you accept?"`,
-      "The air chills for a second. It sounds like a normal promotional call, but something feels off.",
-      "Decision 6: Do you accept the Booster offer?"
-    ];
-    choices = [
-      "Decline politely – “No thanks, we’ve got it covered.”",
-      "Accept the mysterious “rush booster” offer",
-      "Probe for details or stall for time"
-    ];
-    acts = [
-      () => {
-        state.karma += 1;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.money += 20;
-        state.karma = Math.max(0, state.karma - 1);
-        state.shiftMorale = clamp(state.shiftMorale - 1, 0, 12);
-        state.illusions += 0.05;
-        state.boosterTaken = true;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.karma += 1;
-        state.money += 5;
-        state.illusions += 0.01;
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 7) {
-    lines = [
-      "Jules and Mina reach the pass at the same time, nearly colliding as they grab for a ticket.",
-      `Jules: "I can run table twelve's order if Mina’s tied up."`,
-      `Mina: "I have it under control, Jules. Please stay on the bar."`,
-      "They look to you for guidance. You can speak up as one of them.",
-      "Decision 7: Through whose voice do you intervene?"
-    ];
-    choices = [
-      "Speak as Jules – insist he stays at bar, Mina handles food",
-      "Speak as Mina – assert she will run food, Jules hold bar",
-      "Stay out of it – let their trust and policies decide"
-    ];
-    acts = [
-      () => {
-        state.karma += 1;
-        state.julesMorale = clamp(state.julesMorale + 1, 0, 10);
-        state.minaMorale = clamp(state.minaMorale + 1, 0, 10);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.karma += 1;
-        state.minaMorale = clamp(state.minaMorale + 1, 0, 10);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
-        state.illusions += 0.01;
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 8) {
-    lines = [
-      "The birthday table waves for attention – they’d like a candle on their dessert. Meanwhile, no one is at the host stand and the patio table needs refills.",
-      "Decision 8: How do you handle the birthday request?"
-    ];
-    choices = [
-      "Bring out a candle (and plate) to them personally",
-      "Ask Mina to do it once she’s cleared her current tray",
-      "Surprise them with a complimentary dessert (with candle)"
-    ];
-    acts = [
-      () => {
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
-        state.illusions += 0.01;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.money = Math.max(0, state.money - 8);
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      }
-    ];
-  }
-  else if (step === 9) {
-    if (state.illusions >= 0.30) {
-      lines = [
-        "A printer glitch? An order ticket duplicates itself on the rail – same items, same timestamp, printed twice three minutes apart. No one recalls printing a duplicate.",
-        "It looks legitimate until you squint at the details. Something impossible is quietly happening in front of you.",
-        "Decision 9: How do you resolve the duplicate ticket situation?"
-      ];
-      choices = [
-        "Assume it’s a glitch – void the duplicate order",
-        "Fire the order again “just in case” and ignore the oddity",
-        "Stop to ask who printed it, delaying the decision"
-      ];
-      acts = [
-        () => {
-          state.illusions = Math.max(0, state.illusions - 0.01);
-          state.theoMorale = clamp(state.theoMorale + 1, 0, 10);
-          state.scenarioStep++; nextEvent();
-        },
-        () => {
-          state.money = Math.max(0, state.money - 12);
-          state.theoMorale = clamp(state.theoMorale - 1, 0, 10);
-          state.illusions += 0.02;
-          state.scenarioStep++; nextEvent();
-        },
-        () => {
-          state.illusions += 0.03;
-          state.shiftMorale = clamp(state.shiftMorale - 1, 0, 12);
-          state.scenarioStep++; nextEvent();
-        }
-      ];
-    } else {
-      lines = [
-        "The shift continues normally. A minor checkout issue comes up (a split check request) but it’s resolved routinely. No unusual events this hour."
-      ];
-      choices = [ "Continue" ];
-      acts = [
-        () => { state.scenarioStep++; nextEvent(); }
-      ];
+/* Mobile controls */
+let jAct=false,jx=0,jy=0; const joy=q("#joy"), act=q("#act");
+function jp(e){ jAct=true; const r=joy.getBoundingClientRect(); const p=e.touches?e.touches[0]:e; jx=p.clientX-(r.left+r.width/2); jy=p.clientY-(r.top+r.height/2); }
+joy.addEventListener("pointerdown",jp); joy.addEventListener("pointermove",e=>{ if(jAct) jp(e);} ); addEventListener("pointerup",()=>{jAct=false;jx=jy=0});
+act.addEventListener("pointerdown",()=>{ S.act=true; setTimeout(()=>S.act=false,80); });
+
+/* ---------- Utils / Loop ---------- */
+function toast(msg){ const h=q("#hint"); const old=h.textContent; h.textContent=msg; setTimeout(()=>{ h.textContent=old; },1300); }
+function isSolid(x,y){ const cx=Math.floor(x),cy=Math.floor(y); if(cy<0||cx<0||cy>=MAP.length||cx>=MAP[0].length) return true; return solids.has(MAP[cy][cx]); }
+function moveEnt(o,dx,dy){ const nx=o.x+dx, ny=o.y+dy; if(!isSolid(nx,o.y)) o.x=nx; if(!isSolid(o.x,ny)) o.y=ny; }
+
+let last=performance.now();
+function loop(ts){
+  const dt=(ts-last)/1000; last=ts;
+  // spawn ambient orders during play
+  if(S.scenarioActive || !S.dialog){
+    S.orderTimer += dt*1000;
+    const cap = 5; // max queue
+    if(S.orderTimer >= S.orderSpawnMs && S.orders.length < cap){
+      S.orderTimer=0;
+      S.orderSpawnMs = 10000 + Math.random()*12000; // 10–22s
+      spawnOrder();
     }
   }
-  else if (step === 10) {
-    lines = [
-      "With the rush calming down, you gather the team for a quick breather as the music in the bar dips between tracks.",
-      `Mina: "Birthday table was happy. Overall, service went well tonight."`,
-      `Jules: "We burned through more citrus than expected. I’ll prep extra for tomorrow."`,
-      `Theo: "One frying pan started sticking. I need five minutes later to re-season it."`,
-      "Decision 10: How do you wrap up the shift?"
-    ];
-    choices = [
-      "Spend a little now on fixes and prep (Money -15)",
-      "Hold off on spending; push through with what we have",
-      "Give the team a heartfelt pep talk instead"
-    ];
-    acts = [
-      () => {
-        state.money = Math.max(0, state.money - 15);
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.shiftMorale = clamp(state.shiftMorale - 1, 0, 12);
-        state.illusions += 0.01;
-        state.scenarioStep++; nextEvent();
-      },
-      () => {
-        state.karma += 1;
-        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
-        state.scenarioStep++; nextEvent();
-      }
-    ];
+
+  // movement after scenario ends
+  if(!S.dialog && !S.scenarioActive){
+    let dx=0,dy=0; if(keys["w"]||keys["ArrowUp"]) dy-=.06; if(keys["s"]||keys["ArrowDown"]) dy+=.06; if(keys["a"]||keys["ArrowLeft"]) dx-=.06; if(keys["d"]||keys["ArrowRight"]) dx+=.06;
+    if(jAct){ dx+=jx/600; dy+=jy/600; } moveEnt(player,dx,dy);
   }
-  else if (step === 11) {
-    let summaryLines = [];
-    const lowIllusion = state.illusions < 0.05;
-    const highIllusion = state.illusions >= 0.15;
-    const highKarma = state.karma >= 3;
-    if (state.boosterTaken) {
-      summaryLines = [
-        "The hour ends with high profits but a strange sense of unease.",
-        `Sales spiked (Money \$${state.money}), but it feels like it came at a cost.`,
-        "Your Karma is drained and your team is on edge.",
-        "Something unseen seems to linger at the edges of reality..."
-      ];
-    } else if (lowIllusion && highKarma) {
-      summaryLines = [
-        "You finish the shift with modest earnings and steady morale.",
-        `Money is stable at \$${state.money}. You’ve built up some good Karma (Karma ${state.karma}).`,
-        "Your team is in good spirits — everyone handled the night well.",
-        "The world feels crisp and normal. You have room to breathe and plan for tomorrow."
-      ];
-    } else {
-      summaryLines = [
-        "The shift ends with a full register but some frayed nerves.",
-        `Profits are high (Money \$${state.money}), but your Karma is low (${state.karma}).`,
-        "The team is exhausted; small cracks in their morale have started to show.",
-        "Little inconsistencies throughout the night nag at you. The future feels a bit narrower."
-      ];
-    }
-    setDialogue(summaryLines, ["End of Demo"], [() => { 
-      state.scenarioActive = false;
-      state.dialog = null;
-      document.getElementById("hint").textContent = "Demo Complete – End of first shift.";
-    }]);
-    return;
-  }
-  state.time += 1;
-  document.getElementById("clock").textContent = `${timeString()} Day ${state.day}`;
-  setDialogue(lines, choices, acts);
+
+  if(S.act && performance.now()-S.lastInputAt>=S.inputDelayMs){ handleAction(); S.act=false; }
+
+  ctx.clearRect(0,0,W,H); drawMap(); NPCS.forEach(n=>actor(n.x,n.y,n.code)); actor(player.x,player.y,"@"); drawDialog();
+  requestAnimationFrame(loop);
 }
 
-nextEvent();
-document.getElementById("hint").textContent = "Use \u2190/\u2192 to select options, A or Space to confirm.";
-
-/* Main Game Loop (renders frames and handles input) */
-function gameLoop() {
-  let dx = 0, dy = 0;
-  if (!state.dialog && !state.scenarioActive) {
-    if (keys["w"] || keys["ArrowUp"]) dy -= 1;
-    if (keys["s"] || keys["ArrowDown"]) dy += 1;
-    if (keys["a"] || keys["ArrowLeft"]) dx -= 1;
-    if (keys["d"] || keys["ArrowRight"]) dx += 1;
-    if (joystickActive) { dx += jx/45; dy += jy/45; }
-    const len = Math.hypot(dx, dy) || 1;
-    dx /= len; dy /= len;
-    moveEntity(player, dx * player.spd, dy * player.spd);
-    if (dx || dy) {
-      player.dir = Math.abs(dx) > Math.abs(dy)
-        ? (dx > 0 ? 0 : 2)
-        : (dy > 0 ? 3 : 1);
-    }
-  }
-  if (keys["act"]) {
-    handleAction();
-    keys["act"] = false;
-  }
-  document.getElementById("money").textContent = `Money ${state.money}`;
-  document.getElementById("karma").textContent = `Karma ${state.karma}`;
-  const totalMorale = state.shiftMorale + state.julesMorale + state.minaMorale + state.theoMorale;
-  const baseMaxMorale = 8 + 10 + 10 + 10;
-  let moralePercent = Math.round((totalMorale / baseMaxMorale) * 100);
-  if (moralePercent > 100) moralePercent = 100;
-  document.getElementById("morale").textContent = `Morale ${moralePercent}%`;
-  ctx.clearRect(0, 0, W, H);
-  drawMap();
-  for (const npc of NPCS) {
-    drawCharacter(npc.x, npc.y, npc.code);
-  }
-  drawCharacter(player.x, player.y, "@");
-  drawDialog();
-  requestAnimationFrame(gameLoop);
-}
-
-/* Movement helper with basic collision detection */
-function moveEntity(obj, dx, dy) {
-  const newX = obj.x + dx/10;
-  const newY = obj.y + dy/10;
-  if (!isSolid(newX, obj.y)) {
-    obj.x = newX;
-  }
-  if (!isSolid(obj.x, newY)) {
-    obj.y = newY;
-  }
-}
-function isSolid(x, y) {
-  const cx = Math.floor(x), cy = Math.floor(y);
-  if (cx < 0 || cy < 0 || cx >= state.w || cy >= state.h) return true;
-  const ch = MAP[cy][cx];
-  return solids.has(ch);
-}
-
-/* Dialogue rendering */
-function drawDialog() {
-  if (!state.dialog) return;
-  const d = state.dialog;
-  const pad = 16;
-  const dialogWidth = Math.min(W - 40, 600);
-  const dialogHeight = d.choices ? 160 : 140;
-  const x = (W - dialogWidth) / 2;
-  const y = H - dialogHeight - 20;
-  ctx.fillStyle = "rgba(0,0,0,0.8)";
-  ctx.fillRect(x, y, dialogWidth, dialogHeight);
-  ctx.strokeStyle = "rgba(255,255,255,0.2)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, dialogWidth, dialogHeight);
-  ctx.fillStyle = "#f3e9dc";
-  ctx.font = "16px Arial";
-  const text = d.lines[d.index];
-  wrapText(text, x + pad, y + pad + 20, dialogWidth - pad*2, 20);
-  if (d.index === d.lines.length - 1 && d.choices) {
-    ctx.font = "15px Arial";
-    for (let i = 0; i < d.choices.length; i++) {
-      const choiceText = d.choices[i];
-      const bw = (dialogWidth - pad*2) / d.choices.length - 8;
-      const bx = x + pad + i * ((dialogWidth - pad*2) / d.choices.length);
-      const by = y + dialogHeight - 50;
-      const bh = 36;
-      ctx.fillStyle = (i === state.choiceIndex) ? "#7a0e17" : "#2a1a19";
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.fillStyle = "#f3e9dc";
-      ctx.fillText(choiceText, bx + 10, by + 22);
-    }
-  }
-}
-function wrapText(text, x, y, maxWidth, lineHeight) {
-  const words = text.split(' ');
-  let line = '';
-  for (let n = 0; n < words.length; n++) {
-    const testLine = line + words[n] + ' ';
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && n > 0) {
-      ctx.fillText(line, x, y);
-      line = words[n] + ' ';
-      y += lineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line, x, y);
-}
-
-/* Handle action button press (advance dialogue or make choice) */
-function handleAction() {
-  if (state.dialog) {
-    const d = state.dialog;
-    if (d.index < d.lines.length - 1) {
-      d.index++;
-    } else if (d.choices) {
-      const action = d.acts[state.choiceIndex];
-      state.dialog = null;
-      if (action) action();
-    } else {
-      state.dialog = null;
-    }
-  } else {
-    const npc = NPCS.find(n => near(n.x, n.y, player.x, player.y, 1.0));
-    if (npc) {
-      if (npc.script && npc.script.length) {
-        const seg = npc.script.shift();
-        npc.script.push(seg);
-        setDialogue([ seg.t ], seg.k, seg.a);
-      } else {
-        setDialogue([ `${npc.name} nods.` ]);
-      }
-    }
-  }
-}
-
-/* Allow left/right keys to change highlighted choice */
-document.addEventListener("keydown", e => {
-  if (state.dialog && state.dialog.choices) {
-    if (e.key === "ArrowLeft" || e.key === "a") {
-      state.choiceIndex = clamp(state.choiceIndex - 1, 0, state.dialog.choices.length - 1);
-    }
-    if (e.key === "ArrowRight" || e.key === "d") {
-      state.choiceIndex = clamp(state.choiceIndex + 1, 0, state.dialog.choices.length - 1);
-    }
-  }
-});
-
-/* Start the game loop */
-drawMap();
-requestAnimationFrame(gameLoop);
+/* ---------- Boot ---------- */
+setHUD(); nextEvent(); requestAnimationFrame(loop);
 </script>
 </body>
 </html>
