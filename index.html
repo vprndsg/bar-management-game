@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Bar Management VN Demo</title>
+  <style>
+    /* Basic page and text styling */
+    html, body { margin: 0; height: 100%; background: #0e0b0a; color: #eee; font-family: system-ui, Segoe UI, Roboto, Arial; }
+    #wrap { position: fixed; inset: 0; display: grid; place-items: center; }
+    canvas { touch-action: none; background: #120d0b; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); }
+    .topbar { position: fixed; left: 0; right: 0; top: 0; height: 40px; display: flex; gap: .75rem; align-items: center; padding: 0 .75rem; background: linear-gradient(#1a120f, #130d0b); }
+    .pill { padding: .2rem .5rem; border-radius: 999px; background: #241714; color: #f8e7d9; font-size: .9rem; }
+    #hint { position: fixed; left: 0; right: 0; bottom: .5rem; text-align: center; font-size: .9rem; opacity: .85; }
+    /* On-screen controls for mobile (joystick pad and A button) */
+    .pad { position: absolute; bottom: 4.5rem; left: 1rem; width: 9rem; height: 9rem; border-radius: 50%; background: radial-gradient(rgba(255,255,255,0.08), rgba(255,255,255,0.02)); pointer-events: auto; touch-action: none; }
+    .btn { position: absolute; right: 1.2rem; bottom: 6rem; width: 4.5rem; height: 4.5rem; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(rgba(255,255,255,0.1), rgba(255,255,255,0.03)); font-weight: 700; pointer-events: auto; touch-action: none; user-select: none; }
+  </style>
+</head>
+<body>
+  <!-- Top status bar displaying time, resources, and morale -->
+  <div class="topbar">
+    <div id="clock" class="pill">00:00 Day 1</div>
+    <div id="money" class="pill">Money 320</div>
+    <div id="karma" class="pill">Karma 2</div>
+    <div id="morale" class="pill">Morale 38</div>
+  </div>
+  <!-- Canvas for game rendering -->
+  <div id="wrap"><canvas id="c" width="1024" height="640"></canvas></div>
+  <!-- Hint text at bottom for controls -->
+  <div id="hint"></div>
+  <!-- On-screen virtual controls (joystick and action button) -->
+  <div id="hud">
+    <div id="joy" class="pad" aria-label="joystick"></div>
+    <div id="act" class="btn" aria-label="action">A</div>
+  </div>
+
+<script>
+/* Game State and Configuration */
+const RATE = 0;  // Disable auto time advance; we'll increment time manually per event.
+const state = {
+  day: 1,
+  time: 0,               // minutes since shift start (for clock display)
+  money: 320,
+  karma: 2,
+  illusions: 0.00,       // hidden Illusion pressure meter
+  shiftMorale: 8,        // shift-wide morale buffer
+  julesMorale: 10,        // individual staff morale
+  minaMorale: 10,
+  theoMorale: 10,
+  dialog: null,          // current dialogue state (lines, choices)
+  choiceIndex: 0,        // index of currently highlighted choice
+  boosterTaken: false,   // flag if booster offer was accepted
+  scenarioStep: 1,       // which event/decision we are on (1-10, then summary)
+  scenarioActive: true   // whether the scripted scenario is running
+};
+
+/* Map Layout (ASCII grid) */
+const MAP = [
+  "########################",
+  "#     ============     #",
+  "#     =          =     #",
+  "#     =    T     =    D#",
+  "#     =          =     #",
+  "#     ===========B=    #",
+  "#   L    t   M         #",
+  "#            P         #",
+  "#            P         #",
+  "########################"
+];
+/*
+Legend:
+  # = wall (solid)
+  D = door opening (floor, entry/exit point)
+  = = bar counter (solid obstacle)
+  T = table (solid obstacle)
+  t = stool/chair (solid obstacle)
+  B = Jules (Bartender NPC)
+  L = Mina (Server NPC)
+  M = Theo (Cook NPC)
+  P = Customer NPC (two customers seated near table)
+  (spaces ' ' represent floor tiles where characters can move)
+*/
+
+/* Collision set for solid objects */
+const solids = new Set(["#","=","T","t"]);
+
+/* Game objects */
+const NPCS = [];  // list of NPC characters in the scene
+let player = { x: 0, y: 0, px: 0, py: 0, dir: 1, spd: 3 };  // player (manager)
+
+/* NPC spawn and dialogue data */
+const talkData = {
+  B: [],  // Jules (Bartender) – no free-roam scripted dialogue
+  L: [],  // Mina (Server)
+  M: [],  // Theo (Cook)
+  P: []   // Generic patron
+};
+const npcNames = {
+  B: "Jules",
+  L: "Mina",
+  M: "Theo",
+  P: "Customer"
+};
+function spawnNPC(code, x, y) {
+  NPCS.push({ 
+    name: npcNames[code] || "NPC",
+    code: code,
+    x: x,
+    y: y,
+    ai: 0,
+    script: talkData[code] ? [...talkData[code]] : []  // clone initial dialogue script array if any
+  });
+}
+
+/* Initialize Map: place NPCs and player */
+state.h = MAP.length;
+state.w = MAP[0].length;
+for (let y = 0; y < state.h; y++) {
+  for (let x = 0; x < state.w; x++) {
+    const ch = MAP[y][x];
+    if (ch === "#") continue;  // skip walls (nothing to do)
+    // Place player at first floor spot if not placed yet
+    if ((ch === " " || ch === ".") && player.x === 0) {
+      player.x = x + 0.5;
+      player.y = y + 0.7;
+    }
+    if ("BLMP".includes(ch)) {
+      spawnNPC(ch, x + 0.5, y + 0.7);
+      // (NPC position remains a floor tile in map for movement/collision purposes)
+    }
+    // No explicit handling needed for other characters (D, =, T, t) here
+  }
+}
+// Manually adjust player start position (manager joins the staff huddle area)
+player.x = 8.5;
+player.y = 6.7;
+
+/* Utility Functions */
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+function near(ax, ay, bx, by, r) { return Math.hypot(ax - bx, ay - by) < r; }
+function timeString() {
+  const hr = Math.floor(state.time / 60);
+  const min = Math.floor(state.time % 60);
+  return `${String(hr).padStart(2,"0")}:${String(min).padStart(2,"0")}`;
+}
+
+/* Canvas Setup */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+const tile = 32;  // tile size in pixels (assuming 1024x640 fits 32px tiles for our 24x10 map)
+
+/* Draw Map (floor, walls, furniture, door) */
+function drawMap() {
+  for (let y = 0; y < state.h; y++) {
+    for (let x = 0; x < state.w; x++) {
+      const ch = MAP[y][x];
+      const gx = x * tile, gy = y * tile;
+      // Draw wooden floor for non-wall tiles
+      if (ch !== "#") {
+        // Wooden plank floor with slight random brightness variation
+        const noise = Math.sin(x*12.9898 + y*78.233) * 43758.5453;
+        const base = 0.15 + 0.05 * (noise - Math.floor(noise));
+        ctx.fillStyle = `hsl(18,40%,${base*100}%)`;
+        ctx.fillRect(gx, gy, tile, tile);
+        // draw horizontal plank lines
+        ctx.strokeStyle = `rgba(255,255,255,${0.03 + 0.02 * ((noise*10) % 1)})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 3; i < tile; i += 6) {
+          ctx.moveTo(gx, gy + i);
+          ctx.lineTo(gx + tile, gy + i);
+        }
+        ctx.stroke();
+      }
+      // Walls (bar interior walls)
+      if (ch === "#") {
+        ctx.fillStyle = "#3b1f16";
+        ctx.fillRect(gx, gy, tile, tile);
+        ctx.fillStyle = "#512a1d";
+        ctx.fillRect(gx + 2, gy + 2, tile - 4, tile - 4);
+        ctx.fillStyle = "#6a3a24";
+        ctx.fillRect(gx + 4, gy + 4, tile - 8, tile - 8);
+      }
+      // Bar counter (bar counter top and side)
+      if (ch === "=") {
+        ctx.fillStyle = "#2b1711";
+        ctx.fillRect(gx, gy, tile, tile);
+        ctx.fillStyle = "#7a4b33";
+        ctx.fillRect(gx + 2, gy + 10, tile - 4, tile - 14);
+        ctx.fillStyle = "#3b2318";
+        ctx.fillRect(gx + 2, gy + 2, tile - 4, 6);
+      }
+      // Table
+      if (ch === "T") {
+        ctx.fillStyle = "#7c4a2f";
+        ctx.beginPath();
+        ctx.arc(gx + tile/2, gy + tile/2, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#2b1812";
+        ctx.fillRect(gx + tile/2 - 2, gy + tile/2, 4, 12);
+      }
+      // Stool/chair
+      if (ch === "t") {
+        ctx.fillStyle = "#40261b";
+        ctx.fillRect(gx + 12, gy + 16, 8, 14);
+        ctx.fillStyle = "#a16346";
+        ctx.beginPath();
+        ctx.arc(gx + 16, gy + 12, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Door (an opening in the wall)
+      if (ch === "D") {
+        ctx.fillStyle = "#111";
+        ctx.fillRect(gx, gy, tile, tile);
+        ctx.fillStyle = "#222";
+        ctx.fillRect(gx + 4, gy + 4, tile - 8, tile - 8);
+      }
+    }
+  }
+}
+
+/* Draw Characters (NPCs and player) */
+function drawCharacter(x, y, code) {
+  const gx = (x - 0.5) * tile;
+  const gy = (y - 1) * tile;
+  // Determine sprite colors by character code
+  let coat, skin = "#e6d7c4", shade;
+  if (code === "B") {       // Jules (bartender) - green attire
+    coat = "#274d2d"; shade = "#253123";
+  } else if (code === "L") { // Mina (server) - olive attire
+    coat = "#6c6b2a"; shade = "#5a3b1e";
+  } else if (code === "M") { // Theo (cook) - dark outfit
+    coat = "#111"; shade = "#222";
+  } else if (code === "P") { // Customer - brown coat
+    coat = "#6b3b2e"; shade = "#362018";
+  } else {                   // Player or default - blue outfit
+    coat = "#202a3a"; shade = "#0f1a28";
+  }
+  // Draw legs
+  ctx.fillStyle = shade;
+  ctx.fillRect(gx + tile * 0.35, gy + tile * 0.7, tile * 0.12, tile * 0.25);
+  ctx.fillRect(gx + tile * 0.53, gy + tile * 0.7, tile * 0.12, tile * 0.25);
+  // Draw body
+  ctx.fillStyle = coat;
+  ctx.fillRect(gx + tile * 0.25, gy + tile * 0.25, tile * 0.5, tile * 0.5);
+  // Draw head
+  ctx.fillStyle = skin;
+  ctx.fillRect(gx + tile * 0.32, gy, tile * 0.36, tile * 0.28);
+  // Hair/hat line on head
+  ctx.fillStyle = "#1a1412";
+  ctx.fillRect(gx + tile * 0.32, gy, tile * 0.36, tile * 0.07);
+  // (No log prop drawn for any character in this scenario)
+}
+
+/* Input Handling (keyboard and on-screen controls) */
+const keys = {};
+document.addEventListener("keydown", e => {
+  // Prevent scrolling with arrow keys/space
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ", "Enter", "Escape"].includes(e.key)) {
+    e.preventDefault();
+  }
+  keys[e.key] = true;
+  // Map common keys for action (E or Spacebar) to a single flag
+  if (e.key === "e" || e.key === "E" || e.key === " ") {
+    keys["act"] = true;
+  }
+});
+document.addEventListener("keyup", e => {
+  keys[e.key] = false;
+  if (e.key === "e" || e.key === "E" || e.key === " ") {
+    keys["act"] = false;
+  }
+});
+// Virtual joystick and A button for touch
+let joystickActive = false, jx = 0, jy = 0;
+const joyEl = document.getElementById("joy");
+const actBtn = document.getElementById("act");
+function joystickPointerStart(e) {
+  joystickActive = true;
+  const r = joyEl.getBoundingClientRect();
+  const p = e.touches ? e.touches[0] : e;
+  jx = p.clientX - (r.left + r.width/2);
+  jy = p.clientY - (r.top + r.height/2);
+}
+joyEl.addEventListener("pointerdown", joystickPointerStart);
+joyEl.addEventListener("pointermove", e => { if (joystickActive) joystickPointerStart(e); });
+document.addEventListener("pointerup", () => { joystickActive = false; jx = jy = 0; });
+actBtn.addEventListener("pointerdown", () => { keys["act"] = true; });
+actBtn.addEventListener("pointerup", () => { keys["act"] = false; });
+
+/* Dialogue System and Scenario Events */
+// Helper to initiate a dialogue with given lines and optional choices
+function setDialogue(lines, choices = null, acts = null) {
+  state.dialog = { lines: lines, index: 0, choices: choices, acts: acts };
+  state.choiceIndex = 0;
+}
+// Progress to the next event in the scripted scenario
+function nextEvent() {
+  const step = state.scenarioStep;
+  let lines = [], choices = null, acts = null;
+  if (step === 1) {
+    // 00:00 – Pre-shift team huddle
+    lines = [
+      `Jules: "Clock is green. I can float host if patio pops."`,
+      `Mina: "Two reservations right at open. One is a birthday."`,
+      `Theo: "Fryer is humming. Delivery shorted us on buns. I can plate sliders on sourdough."`,
+      "Decision 1: Set staff intents for the shift."
+    ];
+    choices = [
+      "J: Bar only, M: Floor, You float",
+      "J: Bar+Host, M: Patio, You at pass",
+      "Pull Theo to prep, You expedite"
+    ];
+    acts = [
+      () => { 
+        // Option 1: Jules only tends bar, Mina handles floor, you float help.
+        // Effect: Money steady, Karma ±0, Mina morale +1 (appreciates trust), Illusion +0.
+        state.minaMorale = clamp(state.minaMorale + 1, 0, 10);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        // Option 2: Jules doubles as bartender + host, Mina on patio, you stick at pass (risky load on Jules).
+        // Effect: Illusion +0.01 (small hidden strain), Jules morale -1 (overloaded), no immediate Money/Karma change.
+        state.illusions += 0.01;
+        state.julesMorale = clamp(state.julesMorale - 1, 0, 10);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        // Option 3: Pull Theo for extra prep now (costly but safe), you cover expediting.
+        // Effect: Money -10 (prep cost), Karma +1 (good planning), Theo morale +1 (appreciates help), Illusion +0.
+        state.money = Math.max(0, state.money - 10);
+        state.karma += 1;
+        state.theoMorale = clamp(state.theoMorale + 1, 0, 10);
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 2) {
+    // 01:00 – First tables are seated
+    spawnNPC('P', 12.5, 6.7);
+    spawnNPC('P', 14.5, 6.7);
+    lines = [
+      "Two parties are seated. Mina carries a tray of water glasses as the first order prints at the bar.",
+      "The ticket reads a gin cocktail with lime and salt. Jules nods and starts on it without looking up.",
+      "Decision 2: Opening guest touch – How will you greet the first table?"
+    ];
+    choices = [
+      "Personally greet them with a warm, honest welcome",
+      "Have Mina pitch the specials to promise quick bites",
+      "Hang back and let the staff handle initial greetings"
+    ];
+    acts = [
+      () => {
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.money += 8;
+        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
+        state.illusions += 0.02;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 3) {
+    lines = [
+      "The kitchen is backed up. Table 12’s appetizer is still in the window. A glass slips from Mina’s tray – just a clink and a wet floor (no break).",
+      `Mina: "Table twelve is still waiting on their appetizer..."`,
+      `Theo (from kitchen): "Fryer’s backed up. I can comp their app with fries or send a substitute."`,
+      "Decision 3: Handle the delay for table 12."
+    ];
+    choices = [
+      "Walk over to apologize and comp their appetizer",
+      "Send free fries to the table without comment",
+      "Do nothing now; promise to “check on it soon”"
+    ];
+    acts = [
+      () => {
+        state.money = Math.max(0, state.money - 12);
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.money = Math.max(0, state.money - 6);
+        state.illusions += 0.02;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.karma = Math.max(0, state.karma - 1);
+        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
+        state.illusions += 0.03;
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 4) {
+    lines = [
+      "A mini-rush hits: three order tickets stack up. The POS registers a slight lag before printing.",
+      `Jules (busy at bar): "Should I pre-batch some sours to speed the rail?"`,
+      `Mina (hustling by): "Patio wants another round, but their food’s not out yet."`,
+      "Decision 4: How will you push throughput during the rush?"
+    ];
+    choices = [
+      "Allow a small pre-batch of cocktails for speed",
+      "Insist on made-to-order drinks for quality",
+      "Tell Mina to upsell another round before food arrives"
+    ];
+    acts = [
+      () => {
+        state.money += 10;
+        state.julesMorale = clamp(state.julesMorale + 1, 0, 10);
+        state.illusions += 0.01;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.money += 14;
+        state.karma = Math.max(0, state.karma - 1);
+        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
+        state.illusions += 0.03;
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 5) {
+    lines = [
+      "A guest at the bar snaps their fingers for attention. Mina doesn’t notice, but Jules diffuses it by sliding over a napkin with a disarming joke scribbled on it.",
+      `Theo (shouting from kitchen): "Order up for twelve! The window’s full—need a runner now!"`,
+      "Decision 5: Who will run the food to table 12?"
+    ];
+    choices = [
+      "You jump in and run it yourself",
+      "Ask Mina (server) to sprint it out now",
+      "Call Jules off the bar to run the food"
+    ];
+    acts = [
+      () => {
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
+        state.illusions += 0.01;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.money = Math.max(0, state.money - 6);
+        state.julesMorale = clamp(state.julesMorale - 1, 0, 10);
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 6) {
+    lines = [
+      "The back phone lights up with an unknown number. Jules glances at you as you put it on speaker.",
+      `Voice (smooth, unfamiliar): "Rush Booster. Tonight only. A small favor now for an hour of smooth sailing. Do you accept?"`,
+      "The air chills for a second. It sounds like a normal promotional call, but something feels off.",
+      "Decision 6: Do you accept the Booster offer?"
+    ];
+    choices = [
+      "Decline politely – “No thanks, we’ve got it covered.”",
+      "Accept the mysterious “rush booster” offer",
+      "Probe for details or stall for time"
+    ];
+    acts = [
+      () => {
+        state.karma += 1;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.money += 20;
+        state.karma = Math.max(0, state.karma - 1);
+        state.shiftMorale = clamp(state.shiftMorale - 1, 0, 12);
+        state.illusions += 0.05;
+        state.boosterTaken = true;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.karma += 1;
+        state.money += 5;
+        state.illusions += 0.01;
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 7) {
+    lines = [
+      "Jules and Mina reach the pass at the same time, nearly colliding as they grab for a ticket.",
+      `Jules: "I can run table twelve's order if Mina’s tied up."`,
+      `Mina: "I have it under control, Jules. Please stay on the bar."`,
+      "They look to you for guidance. You can speak up as one of them.",
+      "Decision 7: Through whose voice do you intervene?"
+    ];
+    choices = [
+      "Speak as Jules – insist he stays at bar, Mina handles food",
+      "Speak as Mina – assert she will run food, Jules hold bar",
+      "Stay out of it – let their trust and policies decide"
+    ];
+    acts = [
+      () => {
+        state.karma += 1;
+        state.julesMorale = clamp(state.julesMorale + 1, 0, 10);
+        state.minaMorale = clamp(state.minaMorale + 1, 0, 10);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.karma += 1;
+        state.minaMorale = clamp(state.minaMorale + 1, 0, 10);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
+        state.illusions += 0.01;
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 8) {
+    lines = [
+      "The birthday table waves for attention – they’d like a candle on their dessert. Meanwhile, no one is at the host stand and the patio table needs refills.",
+      "Decision 8: How do you handle the birthday request?"
+    ];
+    choices = [
+      "Bring out a candle (and plate) to them personally",
+      "Ask Mina to do it once she’s cleared her current tray",
+      "Surprise them with a complimentary dessert (with candle)"
+    ];
+    acts = [
+      () => {
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.minaMorale = clamp(state.minaMorale - 1, 0, 10);
+        state.illusions += 0.01;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.money = Math.max(0, state.money - 8);
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 9) {
+    if (state.illusions >= 0.30) {
+      lines = [
+        "A printer glitch? An order ticket duplicates itself on the rail – same items, same timestamp, printed twice three minutes apart. No one recalls printing a duplicate.",
+        "It looks legitimate until you squint at the details. Something impossible is quietly happening in front of you.",
+        "Decision 9: How do you resolve the duplicate ticket situation?"
+      ];
+      choices = [
+        "Assume it’s a glitch – void the duplicate order",
+        "Fire the order again “just in case” and ignore the oddity",
+        "Stop to ask who printed it, delaying the decision"
+      ];
+      acts = [
+        () => {
+          state.illusions = Math.max(0, state.illusions - 0.01);
+          state.theoMorale = clamp(state.theoMorale + 1, 0, 10);
+          state.scenarioStep++; nextEvent();
+        },
+        () => {
+          state.money = Math.max(0, state.money - 12);
+          state.theoMorale = clamp(state.theoMorale - 1, 0, 10);
+          state.illusions += 0.02;
+          state.scenarioStep++; nextEvent();
+        },
+        () => {
+          state.illusions += 0.03;
+          state.shiftMorale = clamp(state.shiftMorale - 1, 0, 12);
+          state.scenarioStep++; nextEvent();
+        }
+      ];
+    } else {
+      lines = [
+        "The shift continues normally. A minor checkout issue comes up (a split check request) but it’s resolved routinely. No unusual events this hour."
+      ];
+      choices = [ "Continue" ];
+      acts = [
+        () => { state.scenarioStep++; nextEvent(); }
+      ];
+    }
+  }
+  else if (step === 10) {
+    lines = [
+      "With the rush calming down, you gather the team for a quick breather as the music in the bar dips between tracks.",
+      `Mina: "Birthday table was happy. Overall, service went well tonight."`,
+      `Jules: "We burned through more citrus than expected. I’ll prep extra for tomorrow."`,
+      `Theo: "One frying pan started sticking. I need five minutes later to re-season it."`,
+      "Decision 10: How do you wrap up the shift?"
+    ];
+    choices = [
+      "Spend a little now on fixes and prep (Money -15)",
+      "Hold off on spending; push through with what we have",
+      "Give the team a heartfelt pep talk instead"
+    ];
+    acts = [
+      () => {
+        state.money = Math.max(0, state.money - 15);
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.shiftMorale = clamp(state.shiftMorale - 1, 0, 12);
+        state.illusions += 0.01;
+        state.scenarioStep++; nextEvent();
+      },
+      () => {
+        state.karma += 1;
+        state.shiftMorale = clamp(state.shiftMorale + 1, 0, 12);
+        state.scenarioStep++; nextEvent();
+      }
+    ];
+  }
+  else if (step === 11) {
+    let summaryLines = [];
+    const lowIllusion = state.illusions < 0.05;
+    const highIllusion = state.illusions >= 0.15;
+    const highKarma = state.karma >= 3;
+    if (state.boosterTaken) {
+      summaryLines = [
+        "The hour ends with high profits but a strange sense of unease.",
+        `Sales spiked (Money \$${state.money}), but it feels like it came at a cost.`,
+        "Your Karma is drained and your team is on edge.",
+        "Something unseen seems to linger at the edges of reality..."
+      ];
+    } else if (lowIllusion && highKarma) {
+      summaryLines = [
+        "You finish the shift with modest earnings and steady morale.",
+        `Money is stable at \$${state.money}. You’ve built up some good Karma (Karma ${state.karma}).`,
+        "Your team is in good spirits — everyone handled the night well.",
+        "The world feels crisp and normal. You have room to breathe and plan for tomorrow."
+      ];
+    } else {
+      summaryLines = [
+        "The shift ends with a full register but some frayed nerves.",
+        `Profits are high (Money \$${state.money}), but your Karma is low (${state.karma}).`,
+        "The team is exhausted; small cracks in their morale have started to show.",
+        "Little inconsistencies throughout the night nag at you. The future feels a bit narrower."
+      ];
+    }
+    setDialogue(summaryLines, ["End of Demo"], [() => { 
+      state.scenarioActive = false;
+      state.dialog = null;
+      document.getElementById("hint").textContent = "Demo Complete – End of first shift.";
+    }]);
+    return;
+  }
+  state.time += 1;
+  document.getElementById("clock").textContent = `${timeString()} Day ${state.day}`;
+  setDialogue(lines, choices, acts);
+}
+
+nextEvent();
+document.getElementById("hint").textContent = "Use \u2190/\u2192 to select options, A or Space to confirm.";
+
+/* Main Game Loop (renders frames and handles input) */
+function gameLoop() {
+  let dx = 0, dy = 0;
+  if (!state.dialog && !state.scenarioActive) {
+    if (keys["w"] || keys["ArrowUp"]) dy -= 1;
+    if (keys["s"] || keys["ArrowDown"]) dy += 1;
+    if (keys["a"] || keys["ArrowLeft"]) dx -= 1;
+    if (keys["d"] || keys["ArrowRight"]) dx += 1;
+    if (joystickActive) { dx += jx/45; dy += jy/45; }
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    moveEntity(player, dx * player.spd, dy * player.spd);
+    if (dx || dy) {
+      player.dir = Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? 0 : 2)
+        : (dy > 0 ? 3 : 1);
+    }
+  }
+  if (keys["act"]) {
+    handleAction();
+    keys["act"] = false;
+  }
+  document.getElementById("money").textContent = `Money ${state.money}`;
+  document.getElementById("karma").textContent = `Karma ${state.karma}`;
+  const totalMorale = state.shiftMorale + state.julesMorale + state.minaMorale + state.theoMorale;
+  const baseMaxMorale = 8 + 10 + 10 + 10;
+  let moralePercent = Math.round((totalMorale / baseMaxMorale) * 100);
+  if (moralePercent > 100) moralePercent = 100;
+  document.getElementById("morale").textContent = `Morale ${moralePercent}%`;
+  ctx.clearRect(0, 0, W, H);
+  drawMap();
+  for (const npc of NPCS) {
+    drawCharacter(npc.x, npc.y, npc.code);
+  }
+  drawCharacter(player.x, player.y, "@");
+  drawDialog();
+  requestAnimationFrame(gameLoop);
+}
+
+/* Movement helper with basic collision detection */
+function moveEntity(obj, dx, dy) {
+  const newX = obj.x + dx/10;
+  const newY = obj.y + dy/10;
+  if (!isSolid(newX, obj.y)) {
+    obj.x = newX;
+  }
+  if (!isSolid(obj.x, newY)) {
+    obj.y = newY;
+  }
+}
+function isSolid(x, y) {
+  const cx = Math.floor(x), cy = Math.floor(y);
+  if (cx < 0 || cy < 0 || cx >= state.w || cy >= state.h) return true;
+  const ch = MAP[cy][cx];
+  return solids.has(ch);
+}
+
+/* Dialogue rendering */
+function drawDialog() {
+  if (!state.dialog) return;
+  const d = state.dialog;
+  const pad = 16;
+  const dialogWidth = Math.min(W - 40, 600);
+  const dialogHeight = d.choices ? 160 : 140;
+  const x = (W - dialogWidth) / 2;
+  const y = H - dialogHeight - 20;
+  ctx.fillStyle = "rgba(0,0,0,0.8)";
+  ctx.fillRect(x, y, dialogWidth, dialogHeight);
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, dialogWidth, dialogHeight);
+  ctx.fillStyle = "#f3e9dc";
+  ctx.font = "16px Arial";
+  const text = d.lines[d.index];
+  wrapText(text, x + pad, y + pad + 20, dialogWidth - pad*2, 20);
+  if (d.index === d.lines.length - 1 && d.choices) {
+    ctx.font = "15px Arial";
+    for (let i = 0; i < d.choices.length; i++) {
+      const choiceText = d.choices[i];
+      const bw = (dialogWidth - pad*2) / d.choices.length - 8;
+      const bx = x + pad + i * ((dialogWidth - pad*2) / d.choices.length);
+      const by = y + dialogHeight - 50;
+      const bh = 36;
+      ctx.fillStyle = (i === state.choiceIndex) ? "#7a0e17" : "#2a1a19";
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = "#f3e9dc";
+      ctx.fillText(choiceText, bx + 10, by + 22);
+    }
+  }
+}
+function wrapText(text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '';
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && n > 0) {
+      ctx.fillText(line, x, y);
+      line = words[n] + ' ';
+      y += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, y);
+}
+
+/* Handle action button press (advance dialogue or make choice) */
+function handleAction() {
+  if (state.dialog) {
+    const d = state.dialog;
+    if (d.index < d.lines.length - 1) {
+      d.index++;
+    } else if (d.choices) {
+      const action = d.acts[state.choiceIndex];
+      state.dialog = null;
+      if (action) action();
+    } else {
+      state.dialog = null;
+    }
+  } else {
+    const npc = NPCS.find(n => near(n.x, n.y, player.x, player.y, 1.0));
+    if (npc) {
+      if (npc.script && npc.script.length) {
+        const seg = npc.script.shift();
+        npc.script.push(seg);
+        setDialogue([ seg.t ], seg.k, seg.a);
+      } else {
+        setDialogue([ `${npc.name} nods.` ]);
+      }
+    }
+  }
+}
+
+/* Allow left/right keys to change highlighted choice */
+document.addEventListener("keydown", e => {
+  if (state.dialog && state.dialog.choices) {
+    if (e.key === "ArrowLeft" || e.key === "a") {
+      state.choiceIndex = clamp(state.choiceIndex - 1, 0, state.dialog.choices.length - 1);
+    }
+    if (e.key === "ArrowRight" || e.key === "d") {
+      state.choiceIndex = clamp(state.choiceIndex + 1, 0, state.dialog.choices.length - 1);
+    }
+  }
+});
+
+/* Start the game loop */
+drawMap();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
